@@ -77,7 +77,7 @@ def train_model(config, train_data_gen):
 def main():
     config = utils.config
     paths = utils.paths
-    train_data_gen = data_gen.Data_Gen(config['data_dims'], paths, 4*1024) # Memory size / batch= 4GB
+    train_data_gen = data_gen.Data_Gen(config['data_dims'], config['segments'], paths, config['batch_memsize']) # Memory size / batch= 4GB
     train_model(config, train_data_gen)
 
 
