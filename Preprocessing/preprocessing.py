@@ -16,6 +16,14 @@ def normalized(pic):
 def resize(pic, shape):
     return sk.resize(pic, shape, order=2, preserve_range=True)
 
+def zero_padding(pic, shape):
+    pic_shape = pic.shape
+    resized_pic = np.zeros(shape, dtype=np.float32)
+    h_marge = math.floor((shape[0]-pic_shape[0])/2.0)
+    w_marge = math.floor((shape[1]-pic_shape[1])/2.0)
+    resized_pic[h_marge:h_marge+pic_shape[0],w_marge:w_marge+pic_shape[1]] = pic
+    return resized_pic
+
 # Get every file path contained in path
 def get_files_path(path, regex_name = '*'):
      os.chdir(path)
@@ -23,22 +31,23 @@ def get_files_path(path, regex_name = '*'):
 
 # Tranforms a binary file into a Python object
 def get_db(file_path):
-    with open(file_path, 'rb') as f:
-        db = pickle.load(f)
-    return db
+    try:
+        with open(file_path, 'rb') as f:
+            db = pickle.load(f)
+        return db
+    except:
+        print('Impossible to load data base {}'.format(file_path))
+        return None
 
-def get_pictures_size(positive_path, negative_path, show=False):
-    files_positive = get_files_path(positive_path)
-    files_negative = get_files_path(negative_path)
+# We assume that each db is a dict indexed by eruption time and
+# which contains videos 
+def get_pictures_size(paths_to_file, show=False):
     pictures_size = []
-    for f in files_negative:
+    for f in paths_to_file:
         db = get_db(f)
-        for k, pic in db.items():
-            pictures_size += [list(np.shape(pic['Br']))]
-    for f in files_positive:
-        db = get_db(f)
-        for k, pic in db.items():
-            pictures_size += [list(np.shape(pic['Br']))]
+        if(db != None):
+            for _, vid in db.items():
+                pictures_size += vid['frames_size']
     if(show):
         # Get an histogram of pictures size.
         plt.hist(pictures_size[:,0])
@@ -50,49 +59,63 @@ def get_pictures_size(positive_path, negative_path, show=False):
         plt.ylabel('Nb of pictures')
         plt.show()
     
-    return np.array(pictures_size)
+    return np.array(pictures_size, dtype=np.int32)
 
 # STEP 1: Resize the data according to 'resized_pic_shape' param
 # STEP 2: Normalize the data
 # STEP 3: Return a new Tensor dataset containing only data (no metadata)
 def preprocess_db(db, resized_pic_shape, segs, method='linear_interp'):
     assert method in ['linear_interp', 'zero_padding']
+    assert type(db) is dict
     
     nb_channels = len(segs)
-    nb_pictures = len(db.keys())
-    # Memory size for features (in MB)
-    mem_size = nb_channels * nb_pictures * \
-               resized_pic_shape[0] * resized_pic_shape[1] * 4.0/(1024*1024)
-    print('Allocation of memory for features: '+str(mem_size)+ 'MB')
-    features = np.zeros((nb_pictures,)+resized_pic_shape+(nb_channels,), dtype = np.float32)
-    labels = np.zeros(nb_pictures, dtype = np.bool)
+    features = np.zeros((0,)+resized_pic_shape+(nb_channels,), dtype = np.float32)
+    labels = np.zeros(0, dtype = np.int32)
     print('Starting extraction of features and labels...')
-    count = 0
 
-    for k, pic in db.items():
-        tensor = np.zeros(resized_pic_shape+(nb_channels,), dtype=np.float32)
-        for i in range(nb_channels):
-            pic_channel = np.array(pic[segs[i]], dtype=np.float32)
-            print(pic_channel.shape)
-            # check the consistency of the size according to the method used
-            if(method == 'zero_padding'):
-                if(pic_channel.shape[0] > resized_pic_shape[0] or \
-                   pic_channel.shape[1] > resized_pic_shape[1]):
-                    warnings.warn('Wrong picture size for zero-padding. Pic size : {} , Max size: {}.\n Picture ignored'.format(pic_channel.shape, resized_pic_shape))
-                    break
-                resized_pic = np.zeros(resized_pic_shape, dtype=np.float32)
-                h_marge = math.floor((resized_pic_shape[0]-pic_channel.shape[0])/2.0)
-                w_marge = math.floor((resized_pic_shape[1]-pic_channel.shape[1])/2.0)
-                resized_pic[h_marge:h_marge+pic_channel.shape[0],w_marge:w_marge+pic_channel.shape[1]] = pic_channel
-            else:
-                resized_pic = resize(pic_channel, resized_pic_shape)
-            tensor[:,:,i] = normalized(resized_pic)
-        features[count] = tensor
-        # WE ASSUME THERE'S ONLY ONE FLARE EVENT
-        labels[count] =  (pic['flare_events'][0]['event_class'] >= 'M')
-        count += 1
-        print('Picture '+str(count)+ '/'+str(nb_pictures)+' treated')
-
+    for erupt_time, video in db.items():
+        if(set(video.keys()) >= set(['frames', 'frames_size', 'flare_event'])):
+                frames = db['frames']
+                frames_size = db['frames_size']
+                flare_event = db['flare_event']
+                if('event_class' in flare_event.keys()):
+                    vid_label = (flare_event['event_class'] >= 'M')
+                    if(len(frames_size) == len(frames)):
+                        frame_counter = 0
+                        for frame in frames:
+                            if('channels' in frame.keys()):
+                                channels = frame['channels']
+                                size = frames_size[frame_counter] # current size of frame
+                                if(set(segs) <= set(channels.keys())):
+                                    frame_tensor = np.zeros(resized_pic_shape+(nb_channels,), dtype=np.float32)
+                                    if(method == 'zero_padding'):
+                                        h_marge = math.floor((resized_pic_shape[0] - size[0])/2.0)
+                                        w_marge = math.floor((resized_pic_shape[1] - size[1])/2.0)
+                                        if(h_marge >= 0 and w_marge >= 0):
+                                            for channel_counter in range(nb_channels):
+                                                frame_tensor[:,:,channel_counter] = normalized(zero_padding(channels[segs[channel_counter]], resized_pic_shape))
+                                            features = np.concatenate((features, frame_tensor))
+                                            labels = np.concatenate((labels, vid_label))
+                                        else:
+                                            print('Wrong frame format for zero-padding (got size {}, expected <= {}) on video {}, frame {}. Ignored'\
+                                                  .format(size, resized_pic_shape, erupt_time, frame_counter))
+                                    else:
+                                        for channel_counter in range(nb_channels):
+                                            frame_tensor[:,:,channel_counter] = normalized(resize(channels[segs[channel_counter]], resized_pic_shape))
+                                        features = np.concatenate((features, frame_tensor))
+                                        labels = np.concatenate((labels, vid_label))
+                                else:
+                                    print('Wrong channels for video {}, picture {}. Ignored.'.format(erupt_time, frame_counter))
+                                
+                            else:
+                                print('Wrong picture format for video {}, picture {}. Ignored.'.format(erupt_time, frame_counter))
+                    else:
+                        print('Unable to determine frames size for video {}. Ignored'.format(erupt_time))
+                else:
+                    print('Unable to determine the label for video {}. Ignored.'.format(erupt_time))
+        else:
+            print('Wrong video format for eruption {}. Ignored.'.format(erupt_time))
+            
     return (features, labels)
 
 # 'rescale_method' can whether be 'max' or 'median'
@@ -106,9 +129,9 @@ def create_tf_dataset(paths_to_file, picture_shape = None, regex_name = '*',\
         preprocessing = 'zero_padding'
     else:
         preprocessing = 'linear_interp'
-    if(picture_shape is None and paths_to_file != None):
+    if(picture_shape is None):
         try:
-            pics_size = get_pictures_size(paths)
+            pics_size = get_pictures_size(paths_to_file)
             if(rescale_method == 'median'):
                 # Take the median size 
                 medHeight = np.median(pics_size[:,0])
@@ -122,8 +145,8 @@ def create_tf_dataset(paths_to_file, picture_shape = None, regex_name = '*',\
                 h = 2**math.ceil(np.log(maxHeight)/np.log(2)) # round up
                 w = 2**math.ceil(np.log(maxWidth)/np.log(2))  # round up
                 return (h, w)
-            resized_pic_shape = (h, w)
-            print(' Shape of pictures : '+str(resized_pic_shape))
+            picture_shape = (h, w)
+            print(' Shape of pictures : '+str(picture_shape))
         except:
             print('Impossible to determine the picture\'s resizing')
             print(sys.exc_info()[0])
@@ -132,16 +155,13 @@ def create_tf_dataset(paths_to_file, picture_shape = None, regex_name = '*',\
     nb_channels = len(segs)
     features = np.zeros((0,)+picture_shape+(nb_channels,), dtype=np.float32)
     labels = np.zeros(0, dtype=np.float32)
-    for path in paths:
-            os.chdir(path)
-            files = glob.glob(regex_name)
-            for file in files:
-                db = get_db(file)
-                f, l = preprocess_db(db, picture_shape, segs, preprocessing)
-                features = np.concatenate((features, f))
-                labels = np.concatenate((labels, l))
-                mem_size = (features.nbytes + labels.nbytes)/(1024*1024)
-                print('Total memory size : '+str(mem_size)+ ' MB')
+    for path in paths_to_file:
+        db = get_db(path)
+        f, l = preprocess_db(db, picture_shape, segs, preprocessing)
+        features = np.concatenate((features, f))
+        labels = np.concatenate((labels, l))
+        mem_size = (features.nbytes + labels.nbytes)/(1024*1024)
+        print('Total memory size : '+str(mem_size)+ ' MB')
     return (features, labels)
 
 # Returns n timeseries where n = nb of features for 1 video
