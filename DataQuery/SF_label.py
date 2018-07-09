@@ -174,12 +174,14 @@ def import_SF_dataset(goes_dataset_path, \
         SF_dico = {}
         part_counter = 0
         counter = 0
+        counter_videos = 0
         for event in reader:
             counter += 1
             if(re.match(goes_row_pattern, str.join(',', event)) and 
                (limit is None or nb_positive <= limit or
                (counter in events_really_considered))):
                 ar_nb = int(event[AR_INDEX])
+                counter_videos += 1
                 # We process only numbered flares
                 if(ar_nb > 0):
                     peak_time = drms.to_datetime(event[PEAK])
@@ -199,7 +201,6 @@ def import_SF_dataset(goes_dataset_path, \
                                                  seg = segs_str)
                     # Downloads all pictures and store them together
                     try:
-                    
                         i = len(keys.NOAA_AR)-1
                         pic_not_found = True
                         dico_key = start_time + '_' + str(ar_nb)
@@ -208,6 +209,7 @@ def import_SF_dataset(goes_dataset_path, \
                                                'peak_time':event[PEAK],\
                                                'start_time':event[START],\
                                                'end_time':event[END]})
+                        print("Flare event created for video {}".format(counter_videos))
                         while(i > -1 and (pic_not_found or not nearest_SF_event)):
                             pic_not_found = (keys.NOAA_AR[i] != ar_nb) \
                                or abs(keys.LAT_FWT[i]) > 68\
@@ -226,9 +228,7 @@ def import_SF_dataset(goes_dataset_path, \
                                 SF_pic.header = header                         
                                 SF_vid.add(SF_pic)
                             i -= 1
-                        if(SF_vid.length() > 0):
                             SF_dico[dico_key] = SF_vid
-                            
                     except: 
                         print('Impossible to extract data for event {0} (nb {1})'.format(start_time, counter))
             else: # if the row pattern does not match 
@@ -236,15 +236,17 @@ def import_SF_dataset(goes_dataset_path, \
             
             if(int(counter*100.0/total_length)%5 == 0):
                 print(str(counter*100.0/total_length)+'% of GOES data set analyzed')
-
+            print('Videos {} downloaded.'.format(counter_videos))
+            print("Dico has length {}".format(len(SF_dico)))
             # Save a part of the database
-            if(counter % int(total_length/nb_parts) == 0 and len(SF_dico) > 0): 
+            if(counter_videos % 10 == 0 and len(SF_dico) > 0): 
                 db = {k : vid.to_dict() for k, vid in SF_dico.items()}
                 with open(SF_dataset_path+'_part_'+str(part_counter), 'wb') as f:
                     pickle.dump(db,f)
                     SF_dico.clear()
                     db.clear()
                     part_counter += 1
+                print("Memory dump - part {}".format(part_counter))
               
     db = {k : vid.to_dict() for k, vid in SF_dico.items()}
     with open(SF_dataset_path+'_part_'+str(part_counter), 'wb') as f:
@@ -441,21 +443,19 @@ regex_SF_name = 'SF_*_part_[0-9]*.*'
 #clean_SF_dataset(path+'/SF-positive-data-parts', regex_SF_name)
 #import_SF_dataset(goes_dataset_path, SF_dataset_negative_path, 'B')
 #clean_SF_dataset(path+'/SF-negative-data-parts', regex_SF_name)
-import_SF_dataset(goes_dataset_path, SF_dataset_positive_path, '(M|X)',\
-                  keys_str = 'T_REC, NOAA_AR, HARPNUM,LAT_FWT,LON_FWT,SIZE,SIZE_ACR,NACR,NPIX,LAT_MIN,LAT_MAX,LON_MIN,LON_MAX',\
-                  nearest_SF_event = False,\
-                  sample_time='@1h',\
-                  nb_parts = 100,
-                  limit = None)
+#import_SF_dataset(goes_dataset_path, SF_dataset_positive_path, '(M|X)',\
+#                  keys_str = 'T_REC, NOAA_AR, HARPNUM,LAT_FWT,LON_FWT,SIZE,SIZE_ACR,NACR,NPIX,LAT_MIN,LAT_MAX,LON_MIN,LON_MAX',\
+#                  nearest_SF_event = False,\
+#                  sample_time='@1h',\
+#                  nb_parts = 100,
+#                  limit = None)
 
 import_SF_dataset(goes_dataset_path, SF_dataset_positive_path, 'B',\
                   keys_str = 'T_REC, NOAA_AR, HARPNUM,LAT_FWT,LON_FWT,SIZE,SIZE_ACR,NACR,NPIX,LAT_MIN,LAT_MAX,LON_MIN,LON_MAX',\
                   nearest_SF_event = False,\
                   sample_time='@1h',\
-                  nb_parts = 100,
+                  nb_parts =1000,
                   limit = 2500) 
-        
-    
     
     
     
