@@ -23,10 +23,10 @@ class Model:
     #############################################################
     def build_vgg16_like(self, data, labels):
         # data must have size nb_pictures x height x width x nb_channels
-        assert type(data) is np.ndarray and len(data.shape) == 4
-        assert type(labels) is np.ndarray and labels.shape == (data.shape[0], 1)
+        assert type(data) is tf.Tensor and len(data.shape) == 4
+        assert type(labels) is tf.Tensor and labels.shape == (data.shape[0],)
         with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
-            (nb_pics, height, width, nb_channels) = data.shape
+            (nb_pics, height, width, nb_channels) = data.get_shape().as_list()
             
             self.input_layer = tf.reshape(data, [nb_pics, height, width, nb_channels])
             
@@ -106,9 +106,9 @@ class Model:
             self.accuracy, self.update_acc = tf.metrics.accuracy(tf.argmax(self.logits, axis=1), labels)
             
             # Summary for tensorboard visualization
-            self.weights_summary(tf.get_variable('conv5_3/kernel'), 'last_conv_weights')
+            self.weights_summary(tf.get_variable('conv5_3/kernel',shape=[3,3,512,512]), 'last_conv_weights')
             self.weights_summary(self.dense3, 'last_fc_layer')
-            self.prob_summary()
+            self.prob_summary(nb_pics)
             tf.summary.scalar('Loss', self.loss)
             tf.summary.scalar('Accuracy', self.accuracy)
             
@@ -121,8 +121,8 @@ class Model:
 
     def conv_layer(self, input_, filter_shape, name, padding='SAME', activation='relu', strides=[1,1,1,1]):
         with tf.variable_scope(name):
-            kernel = tf.Variable(tf.random_normal(filter_shape, mean=0.0, stddev=0.5), 'kernel')
-            biases = tf.Variable(tf.constant(0, shape=[filter_shape[-1]]), 'biases')
+            kernel = tf.Variable(tf.random_normal(filter_shape, mean=0.0, stddev=0.5, dtype=tf.float32), 'kernel')
+            biases = tf.Variable(tf.constant(0, shape=[filter_shape[-1]], dtype=tf.float32), 'biases')
             # convolve and add bias            
             conv = tf.nn.conv2d(input_, kernel, strides, padding)
             conv = tf.nn.bias_add(conv, biases)
@@ -140,8 +140,8 @@ class Model:
     
     def fc_layer(self, input_, nb_input, nb_output, name, activation='relu', dropout = True):
         with tf.variable_scope(name):
-            weights = tf.Variable(tf.random_normal([nb_input, nb_output]), 'weights')
-            biases = tf.Variable(tf.constant(0, shape=[nb_output]), 'biases')
+            weights = tf.Variable(tf.random_normal([nb_input, nb_output], dtype=tf.float32), 'weights')
+            biases = tf.Variable(tf.constant(0, shape=[nb_output], dtype=tf.float32), 'biases')
             # mult and add bias
             fc = tf.matmul(input_, weights) + biases
             # if a batch norm is needed, apply it
@@ -158,10 +158,11 @@ class Model:
             
             return fc
     
-    def prob_summary(self):
+    def prob_summary(self, nb_pics):
         with tf.variable_scope('prob_summary'):
-            for k in range(self.nb_classes):
-                tf.summary.scalar('prob_class_{}'.format(k), self.prob[k])
+            for i in range(nb_pics):
+                for j in range(self.nb_classes):
+                    tf.summary.scalar('prob_pic_{}_class_{}'.format(i,j), self.prob[i,j])
                 
     
     def weights_summary(self, var, name):
@@ -169,7 +170,7 @@ class Model:
             var_flatten = tf.layers.flatten(var)
             mean = tf.reduce_mean(var_flatten)
             stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
-            tf.summary('mean', mean)
+            tf.summary.scalar('mean', mean)
             tf.summary.scalar('stddev', stddev)
             tf.summary.scalar('max', tf.reduce_max(var))
             tf.summary.scalar('min', tf.reduce_min(var))

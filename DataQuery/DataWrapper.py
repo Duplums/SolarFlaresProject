@@ -1,4 +1,4 @@
-import re
+import re, cv2, math
 import numpy as np
 
 class SF_picture:
@@ -60,7 +60,7 @@ class SF_picture:
         if (self.header is None) or (self.header['T_REC'] is None):
             return ''
         else:
-            return self.header['T_REC']
+            return self.header['T_REC']        
     
     # convert SF_picture to dictionnary
     def to_dict(self):
@@ -90,9 +90,66 @@ class SF_video:
             self.frames_size += [SF_pic.size]
         else:
             print('A frame must be a \'SF_picture\'. Ignored.')
+            
+    def display(self, height = 200, width = 400):
+        nb_cols = 1
+        if(len(self.frames) > 0):
+            nb_cols = math.ceil(math.sqrt(len(self.frames[0].dict_segs)))
+        count_seg = 0
+        # Create the windows
+        for frame in self.frames:
+            for seg in frame.dict_segs.keys(): 
+                count_seg += 1
+                cv2.namedWindow(str(seg), cv2.WINDOW_NORMAL)
+                cv2.resizeWindow(str(seg), width, height)
+                cv2.moveWindow(str(seg), count_seg*width, (count_seg%nb_cols)*height)
+            count_seg = 0
+        # Display videos
+        for frame in self.frames:
+            for seg in frame.dict_segs.keys():
+                cv2.imshow(str(seg), frame.dict_segs[seg])
+            cv2.waitKey(0)
+        cv2.destroyAllWindows()
+            
         
     def to_dict(self):
         res = {'flare_event':self.flare_event, 'frames': [pic.to_dict() for pic in self.frames], 'frames_size': self.frames_size}
         return res
-    
+
+
+#def picture_show(pics, segs = 'Bp,Bp_err,Br,Br_err,Bt,Bt_err,Dopplergram,magnetogram,continuum'):
+#    segs = re.split(' ?, ?', segs)
+#    flare_class = pics['flare_events'][0]['event_class']
+#    peak = pics['flare_events'][0]['peak_time']
+#    trec = pics['header']['T_REC']
+#    noaa = pics['header']['NOAA_ARS']
+#    harp = pics['header']['HARPNUM']
+#    nb_channels = len(segs)
+#    # Print every channels of an image
+#    fig, axes = plt.subplots(int(nb_channels/3)+(nb_channels%3>0), \
+#                             int(3*(nb_channels>=3)+nb_channels*(nb_channels<3)),\
+#                             figsize=(15, 7.5))
+#    for i, ax in enumerate(axes.flat):
+#        if(i < nb_channels):
+#        # Plot image.
+#            ax.imshow(pics[segs[i]])
+#            ax.set_xlabel('{}'.format(segs[i]))
+#            # Remove ticks from the plot.
+#            ax.set_xticks([])
+#            ax.set_yticks([])
+#    fig.suptitle('AR {} (HARP {}) taken on {}\n with peak flux magnitude {}\n(peak time: {})'.\
+#                 format(noaa, harp, trec, flare_class, peak), fontsize=14, fontweight='bold')
+#    fig.subplots_adjust(hspace=0.1, wspace=0.1)
+#    plt.show()
+
+
+
+
+
+
+
+
+
+
+
     

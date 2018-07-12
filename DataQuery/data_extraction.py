@@ -1,361 +1,339 @@
 from astropy.io import fits
 from sunpy.time import TimeRange
 import sunpy.instr.goes as goes_db
-from sunpy.time import parse_time
 from datetime import timedelta
-import drms
-import os, glob, re, csv
+import drms, h5py
+import os, csv, sys, re
 import numpy as np
-import pickle
-import matplotlib.pyplot as plt
-import DataWrapper
+import utils
 
-# get every GOES events from tstart to tend and store it into .csv file.
-# Format: class, NOAA, event_date, start_time, end_time, peak_time
-# Eventually, the user can provide GOES data
-def import_GOES_dataset(csv_file_name, path, goes_events = None, tstart = None, tend = None):
-    os.chdir(path)
-    with open(csv_file_name, 'w', newline='') as file:
-        writer = csv.writer(file, delimiter=',')
-        writer.writerow(['class', 'NOAA_ar_num', 'event_date', 'start_time', 'end_time', 'peak_time'])
-        if(goes_events is None):
-            goes_events = goes_db.get_goes_event_list(TimeRange(tstart, tend))
-        for event in goes_events:
-            if(event['noaa_active_region'] > 0):
-                writer.writerow([event['goes_class'], event['noaa_active_region'], \
-                             event['event_date'], event['start_time'], \
-                             event['end_time'], event['peak_time']])
+''' This class aims to download the data from JSOC and to convert it into 
+    HDF5 files. For the label and other metadata information, it will be
+    stored in the HDF5 files. Each HDF5 file is constructed as follows:
+        /video1
+            /attrs
+                # GOES attributes associated to the event that the video captured
+                'event_class': 'M1'
+                'event_date': '2010-05-02 00:00:00'
+                ...
+            /frame1
+                /attrs
+                    # Active region attributes associated to this frame
+                    'SIZE': [100, 200]
+                    'T_REC': '2010-05-01 00:00:00'
+                    'SEGS': '['Br', 'Bp', 'Bt'] 
+                    ...
+                /datasets
+                    # dtype = int32
+                    # shape = (100, 200, 3)
+            ...
+            /frameN
+                
+        /video2
+        ...
+        /videoN
+'''
 
+class Data_Downloader:
+    # Root path for every files downloaded
+    main_path = None
+    # Attributes dowloaded in the GOES data base
+    goes_attrs = None
+    # Attributes downloaded in the JSOC data base
+    ar_attrs = None
+    # Segments download in the JSOC data base
+    ar_segs = None
+    # Memory limit for each HDF5 file (in MB)
+    mem_limit = None 
+    
+    def __init__(self, main_path, goes_attrs, ar_attrs, ar_segs, mem_limit = 1024):
+        self.main_path = main_path
+        self.goes_attrs = goes_attrs
+        self.ar_attrs = ar_attrs
+        self.ar_segs = ar_segs
+        self.mem_limit = mem_limit
+        
+        if(not os.path.isdir(main_path)):
+            os.mkdir(main_path)
+        os.chdir(main_path)
+    # Downloads the attributes from GOES data base from tstart to tend and 
+    # store it into a CSV file.
+    def download_goes_data(self, file_name = 'GOES_data.csv',
+                           tstart = '2010-05-01', tend = '2018-07-01'):
+        if('noaa_active_region' not in self.goes_attrs):
+            self.goes_attrs = ['noaa_active_region']
+            print('Warning: \'noaa_active_region\' not in goes_attrs. Added.')
+        file_path = os.path.join(self.main_path, file_name)
+        if(os.path.exists(file_path)):
+            print('Be careful, file {} already exists. It will be replaced.'.format(file_path))
+        
+        with open(file_path, 'w', newline='') as file:
+            writer = csv.writer(file, delimiter=',')
+            writer.writerow(self.goes_attrs)
+            data = goes_db.get_goes_event_list(TimeRange(tstart, tend))
+            for row in data:
+                if(row['noaa_active_region'] > 0):
+                    writing_row = []
+                    for attrs in self.goes_attrs:
+                        writing_row += [row[attrs]]
+                    writer.writerow(writing_row)
 
-# Get the solar flare (SF) pictures from SDO/HMI JSOC database labelled with 
-# the GOES database. The label is based on the GOES X-ray flux peak. 
-# Example: positive_class = ['M', 'X'], negative_class = ['B', 'C']
-# nearest_SF_event: do we take only the nearest picture from a SF event ?
-# if not, take all pictures within 24h before the event
-def import_SF_dataset(goes_dataset_path, \
-                      SF_dataset_path, \
-                      flare_class = '(B|C|M|X)',\
-                      segs_str = 'Bp,Bp_err,Br,Br_err,Bt,Bt_err,Dopplergram,magnetogram,continuum',\
-                      keys_str = 'T_REC, NOAA_AR, HARPNUM, LAT_FWT, LON_FWT',\
-                      nearest_SF_event = True,\
-                      sample_time = '@1h',\
-                      nb_parts = 10.0,\
-                      limit = 400):
+    @staticmethod
+    def _check_essential_attributes(attrs_set, essential_attrs):
+        if(not essential_attrs.issubset(attrs_set)):
+            missing_attrs= essential_attrs.difference(attrs_set)
+            print('Warning: some attributes are missing to describe an active region: {}. Added.'.format(missing_attrs))
+            return list(missing_attrs)
+        return []
     
-    assert keys_str.find('NOAA_AR') > -1 and keys_str.find('HARPNUM') > -1
-    assert keys_str.find('LAT_FWT') > -1 and keys_str.find('LON_FWT') > -1
+    @staticmethod
+    def _in_time_window(time, start_time, end_time):
+        if(start_time is None and end_time is None):
+            return True
+        try:
+            if(start_time is None):
+                before_end = (drms.to_datetime(time) <= drms.to_datetime(end_time))
+                return before_end
+            elif(end_time is None):
+                after_start = (drms.to_datetime(time) >= drms.to_datetime(start_time))
+                return after_start
+            else:
+                after_start = (drms.to_datetime(time) >= drms.to_datetime(start_time))
+                before_end = (drms.to_datetime(time) <= drms.to_datetime(end_time))
+                return(after_start and before_end)
+        except:
+            print('Impossible to determine if time {} is in [{}, {}]'.format(time, start_time, end_time))
+            return False
+    @staticmethod
+    def _UTC2JSOC_time(UTC):
+        JSOC = re.sub('-', '.', UTC)
+        JSOC = re.sub(' ' , '_', UTC) + '_TAI'
+        return JSOC
     
-    database_serie = 'hmi.sharp_cea_720s[1-7256]' # every SF detected in SHARP.
-    CLASS_INDEX , AR_INDEX, EVENT_DATE, START, END, PEAK = range(6)
-    goes_row_pattern = flare_class+'[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*'
-    segs_str_array = re.split(' ?, ?', segs_str)
-    keys_str_array = re.split(' ?, ?', keys_str)
-    total_length = sum(1 for line in open(goes_dataset_path, 'r'))
-    # Estimations...
-    nb_positive = 0
-    considered_events = []
-    with open(goes_dataset_path, 'r', newline='') as file:
-        reader = csv.reader(file, delimiter=',')
-        counter = 0
-        for event in reader:
-            counter += 1
-            if(re.match(goes_row_pattern, str.join(',', event))):
-                nb_positive += 1
-                considered_events += [counter]
-    
-    if(limit is not None and nb_positive > limit):
-        events_really_considered = np.random.choice(considered_events, limit)
-    print(nb_positive)
-    
-    print('Nb of flares: '+str(nb_positive))
-    print('Total size estimated: '+str(30*nb_positive)+'Mo')
-    print('Size/part estimated: '+str(30*nb_positive/nb_parts)+'Mo')
-    with open(goes_dataset_path, 'r', newline='') as file:        
-        reader = csv.reader(file, delimiter=',')
-        client = drms.Client()
-        SF_dico = {}
-        part_counter = 0
-        counter = 0
-        for event in reader:
-            counter += 1
-            if(re.match(goes_row_pattern, str.join(',', event)) and 
-               (limit is None or nb_positive <= limit or
-               (counter in events_really_considered))):
-                ar_nb = int(event[AR_INDEX])
-                # We process only numbered flares
-                if(ar_nb > 0):
-                    peak_time = drms.to_datetime(event[PEAK])
-                    start_time = peak_time - timedelta(days=1)
-                    # Change the date format
-                    peak_time = UTC2JSOC_time(str(peak_time))
-                    start_time = UTC2JSOC_time(str(start_time))
-                    # Do the request to JSOC database
-                    if(segs_str == ''):
-                        keys = client.query(database_serie+'['+start_time+'-'+\
-                                                 peak_time+sample_time+']',\
-                                                 key = keys_str)
-                    else:
-                        keys, segments = client.query(database_serie+'['+start_time+'-'+\
-                                                 peak_time+sample_time+']',\
-                                                 key = keys_str, \
-                                                 seg = segs_str)
-                    # Downloads all pictures and store them together
-                    try:
-                    
-                        i = len(keys.NOAA_AR)-1
-                        pic_not_found = True
-                        dico_key = start_time + '_' + str(ar_nb)
-                        SF_vid = DataWrapper.SF_video([], {'event_class': event[CLASS_INDEX],\
-                                               'event_date': event[EVENT_DATE], \
-                                               'peak_time':event[PEAK],\
-                                               'start_time':event[START],\
-                                               'end_time':event[END]})
-                        while(i > -1 and (pic_not_found or not nearest_SF_event)):
-                            pic_not_found = (keys.NOAA_AR[i] != ar_nb) \
-                               or abs(keys.LAT_FWT[i]) > 68\
-                               or abs(keys.LON_FWT[i]) > 68
-                            if(not pic_not_found):
-                                SF_pic = DataWrapper.SF_picture()
-                                # we download what we need
-                                for seg in segs_str_array:
-                                    if seg != '' :
-                                        url = 'http://jsoc.stanford.edu' + segments[seg][i]
-                                        data = np.array(fits.getdata(url), dtype=np.float32)
-                                        SF_pic.set_segments(seg, data)
-                                header = {}
-                                for key in keys_str_array:
-                                    header[key] = keys[key][i]
-                                SF_pic.header = header                         
-                                SF_vid.add_frame(SF_pic)
-                            i -= 1
-                        if(SF_vid.length() > 0):
-                            SF_dico[dico_key] = SF_vid
-                            
-                    except: 
-                        print('Impossible to extract data for event {0} (nb {1})'.format(start_time, counter))
-            else: # if the row pattern does not match 
-                print('Row ignored: '+str.join(',', event))
+    # Get the data from the JSOC data base according to the solar eruptions described
+    # in the GOES data base. The queries are based on SunPy and
+    # the output files are in HDF5 format. The attributes associated to each 
+    # pictures and downloaded are stored in self.ar_attrs. The number of channels
+    # per picture is defined thanks to the attribute self.ar_segs.
+    # Returns True if the data has been dowloaded successfully; False otherwise.
+    def download_jsoc_data(self, files_core_name = 'jsoc_data',
+                           directory = None,
+                           goes_data_path = None, 
+                           goes_row_pattern = '(B|C|M|X)[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
+                           start_time = None, end_time = None,
+                           hours_before_event = 24, sample_time = '@1h',
+                           limit = 400):
+        
+        if(directory is None and not os.path.isdir(os.path.join(self.main_path, 'JSOC-Data'))):
+            os.mkdir(os.path.join(self.main_path, 'JSOC-Data'))
+            os.chdir(os.path.join(self.main_path, 'JSOC-Data'))
+        elif(os.path.isdir(os.path.join(self.main_path, directory))):
+            os.chdir(os.path.join(self.main_path, directory))
+        else:
+            print('The path {} does not exist.'.format(os.path.join(self.main_path, directory)))
+            return False
+        
+        essential_ar_attrs = {'NOAA_AR', 'HARPNUM', 'LAT_FWT', 'LON_FWT'}
+        essential_goes_attrs = {'start_time', 'peak_time', 'noaa_active_region', 'event_class'}
+        jsoc_serie = 'hmi.sharp_cea_720s[1-7256]'
+        
+        # Verifications of the path to GOES data and the format of the .csv
+        if(goes_data_path is None):
+            if(os.path.exists(os.path.join(self.main_path, 'GOES_data.csv'))):
+                goes_data_path = os.path.join(self.main_path, 'GOES_data.csv')
+            else:
+                print('Please enter a valid path to the GOES data.')
+                return False
+        if(not os.path.exists(goes_data_path)):
+            print('Please enter a valid path to the GOES data.')
+            return False
+        
+        missing_goes_attrs = self._check_essential_attributes(set(self.goes_attrs), essential_goes_attrs)
+        if(len(missing_goes_attrs) > 0):
+            print('Missing attributes in GOES file : {}.'.format(missing_goes_attrs))
+            return False
+        
+        [start, peak, noaa_ar] = [self.goes_attrs.index('start_time'), 
+                                  self.goes_attrs.index('peak_time'),
+                                  self.goes_attrs.index('noaa_active_region')]
             
-            if(int(counter*100.0/total_length)%5 == 0):
-                print(str(counter*100.0/total_length)+'% of GOES data set analyzed')
+        total_length = sum(1 for line in open(goes_data_path, 'r'))
+        self.ar_attrs += self._check_essential_attributes(set(self.ar_attrs), essential_ar_attrs)
 
-            # Save a part of the database
-            if(counter % int(total_length/nb_parts) == 0 and len(SF_dico) > 0): 
-                db = {k : vid.to_dict() for k, vid in SF_dico.items()}
-                with open(SF_dataset_path+'_part_'+str(part_counter), 'wb') as f:
-                    pickle.dump(db,f)
-                    SF_dico.clear()
-                    db.clear()
+        # Estimation of the number of solar eruption videos considered.
+        # Limit the number of videos if 'limit' is reached.
+        nb_positive = 0
+        considered_events = []
+        with open(goes_data_path, 'r', newline='') as file:
+            reader = csv.reader(file, delimiter=',')
+            counter = 0
+            for event in reader:
+                counter += 1
+                if(self._in_time_window(event[start], start_time, end_time) and 
+                   re.match(goes_row_pattern, str.join(',', event)) and
+                   int(event[noaa_ar]) > 0):
+                        nb_positive += 1
+                        considered_events += [counter]
+        if(limit is not None and nb_positive > limit):
+            events_really_considered = np.random.choice(considered_events, limit)
+            
+        # Summary
+        print('Nb of videos to download: {}/{}'.format(nb_positive, counter))
+        print('Look up of pictures until {}h before an event.'.format(hours_before_event))
+        
+
+        with open(goes_data_path, 'r', newline='') as file:        
+            reader = csv.reader(file, delimiter=',')
+            client = drms.Client()
+            mem = 0 # Set a counter for the current cache memory (in bytes) used by videos
+            part_counter = 0
+            vid_counter = 0
+            counter = 0
+            current_save_file = h5py.File(files_core_name+str(part_counter)+'.hdf5', 'w') 
+            for event in reader:
+                counter += 1
+                if(re.match(goes_row_pattern, str.join(',', event)) and 
+                   (limit is None or nb_positive <= limit or
+                   (counter in events_really_considered)) and
+                    self._in_time_window(event[start], start_time, end_time)):
+                    ar_nb = int(event[noaa_ar])
+                    # We process only numbered flares
+                    if(ar_nb > 0):
+                        peak_time = drms.to_datetime(event[peak])
+                        start_time = peak_time - timedelta(hours=hours_before_event)
+                        # Change the date format
+                        peak_time = self._UTC2JSOC_time(str(peak_time))
+                        start_time = self._UTC2JSOC_time(str(start_time))
+                        # Do the request to JSOC database
+                        query = '{}[{}-{}{}]'.format(jsoc_serie, start_time, peak_time, sample_time)
+                        if(len(self.ar_segs)==0): keys = client.query(query, key=self.ar_attrs)
+                        else: keys, segments = client.query(query, key=self.ar_attrs, seg=self.ar_segs)
+                        
+                        
+                        # Downloads the video of this solar flare and construct 
+                        # the HDF5 file.
+                        try:
+                            nb_frame = len(keys.NOAA_AR)-1
+                            dumping = False
+                            current_vid = current_save_file.create_group('video{}'.format(vid_counter))
+                            vid_counter += 1
+                            for k in range(len(self.goes_attrs)):
+                                current_vid.attrs[self.goes_attrs[k]] = event[k]
+                            
+                            print('Trying to extract data for video {} corresponding to event {}'.format(vid_counter, event[peak]))
+                            frame_counter = 0
+                            while(nb_frame > -1 and not dumping):
+                                right_pic  = (keys.NOAA_AR[nb_frame] == ar_nb)\
+                                   and abs(keys.LAT_FWT[nb_frame]) <= 68\
+                                   and abs(keys.LON_FWT[nb_frame]) <= 68
+                                
+                                #Creates a new frame and add it to the video
+                                if(right_pic):
+                                    current_frame = current_vid.create_group('frame{}'.format(frame_counter))
+                                    frame_counter += 1
+                                    for k in range(len(self.ar_attrs)):
+                                        current_frame.attrs[self.ar_attrs[k]] = keys[k]
+                                    current_frame.attrs['SEGS'] = np.string_(list(self.ar_segs))
+                                    data_shape = None # unknown 
+                                    frame = None
+                                    seg_counter = 0
+                                    for seg in self.ar_segs:
+                                        url = 'http://jsoc.stanford.edu' + segments[seg][nb_frame]
+                                        data = np.array(fits.getdata(url), dtype=np.float32)
+                                        if(data_shape is None):
+                                            data_shape = data.shape
+                                            frame = np.zeros(data_shape + (len(self.ar_segs),), dtype=np.float32)
+                                        frame[:,:,seg_counter] = data
+                                        seg_counter += 1
+                                        mem += data.nbytes    
+                                    current_frame.create_dataset('channels', data=frame)
+
+                                    if(mem/(1024*1024) > 2*self.mem_limit):
+                                        print('Memory usage > {}MB. Dumping...'.format(2*self.mem_limit))
+                                        dumping = True
+                                nb_frame -= 1
+                            
+                            print('Video {} associated to event {} extracted ({} frames)'.format(vid_counter, event[peak], frame_counter))
+
+                        except: 
+                            print('Impossible to extract data for event {0} (nb {1})'.format(start_time, counter))
+                            print(sys.exc_info())
+                else: # if the row pattern does not match 
+                    print('Row ignored: '+str.join(',', event))
+                
+                if(int(counter*100.0/total_length)%5 == 0):
+                    print(str(counter*100.0/total_length)+'% of GOES data set analyzed')
+    
+                # Save the current HDF5 file. Reset vid_counter for the next HDF5 file.
+                if(mem/(1024*1024) > self.mem_limit):
+                    current_save_file.close()
                     part_counter += 1
-              
-    db = {k : vid.to_dict() for k, vid in SF_dico.items()}
-    with open(SF_dataset_path+'_part_'+str(part_counter), 'wb') as f:
-        pickle.dump(db,f)
-        SF_dico.clear()    
-
-# create an other database with just the extracted features (no pictures)
-#def collect_features(SF_dataset_path,\
-#                     regex_name,\
-#                     features_to_extract):
-#    os.chdir(SF_dataset_path)
-#    files = glob.glob(regex_name)
-#    for file in files:
-#         with open(file, 'rb') as f:
-#            db = pickle.load(f)
+                    vid_counter = 0
+                    mem = 0
+                    current_save_file = h5py.File(files_core_name+str(part_counter), 'w') 
+        
+        # After the downloading, close the last file !
+        current_save_file.close()
+        print('Data base has been downloaded successfully !')
+        return True
 
 
-#  Erase missing data ('NaN')
-# BE CAREFUL AND DO A BACKUP OF THE DATASET BEFORE RUNNING IT
-def clean_SF_dataset(SF_dataset_path, \
-                     regex_name, \
-                     segs_str = 'Bp,Bp_err,Br,Br_err,Bt,Bt_err,Dopplergram,magnetogram,continuum'):
-    os.chdir(SF_dataset_path)
-    files = glob.glob(regex_name)
-    segs_str_array = re.split(',', segs_str)
-    mem_save = 0 # Total memory saved (MB)   
-    total_nb_pictures = 0
-    total_nb_SF = 0
-    for file in files:
-        db = get_db(file)
-        keys = db.keys()
-        for key in keys:
-            pic = db[key]
-            total_nb_SF += 1
-            for seg in segs_str_array:
-                total_nb_pictures += 1
-                # Each seg can be viewed as a picture 
-                pic[seg] = np.array(pic[seg], dtype = np.float32)
-                data = pic[seg]
-                
-                # STEP 1: erase 'NaN'
-                where_is_nan = np.argwhere(np.isnan(data))
-                if(len(where_is_nan) > 0):
-                    nan_up_left_corner = (min(where_is_nan[:,0]), min(where_is_nan[:,1]))
-                    nan_down_right_corner = (max(where_is_nan[:,0]), max(where_is_nan[:,1]))
-                    # Select only the biggest rectangle that 
-                    # not contains 'NaN'
-                    data_shape = np.shape(data)
-                    right_split_pic_width = nan_up_left_corner[1]
-                    left_split_pic_width = data_shape[1] - nan_down_right_corner[1]
-                    if(right_split_pic_width > left_split_pic_width):
-                        # conserve only the right picture's part
-                        pic[seg] = data[:,0:nan_up_left_corner[1]]
-                    else:
-                        #otherwise, conserve the other part
-                        pic[seg] = data[:,nan_down_right_corner[1]+1:]
-                    data_reshape = np.shape(pic[seg])
-                    print('Picture '+key+', seg '+seg+' treated: '+\
-                          str(data_shape)+' --> '+str(data_reshape))
-                    mem_save += ((data_shape[0]-data_reshape[0])*data_shape[1] +\
-                                (data_shape[1]-data_reshape[1])*data_reshape[0])*data.itemsize
-                if(np.any(np.isnan(pic[seg]))):
-                    print('Error for the following picture (file:'+file+')')
-                    print('Before -->')
-                    plt.imshow(data)
-                    plt.show()
-                    print('After cleaning -->')
-                    plt.imshow(pic[seg])
-                    plt.show()
-                
-        with open(file, 'wb') as f:
-            pickle.dump(db, f)
-    mem_save /= (1024*1024) # from Bytes to  MB
-    print('Total number of pictures analyzed: '+str(total_nb_pictures))
-    print('Total number of SF analyzed: '+str(total_nb_SF))
-    print('Memory saved : '+str(mem_save)+'MB')
-
-def UTC2JSOC_time(UTC):
-    JSOC = re.sub('-', '.', UTC)
-    JSOC = re.sub(' ' , '_', UTC) + '_TAI'
-    return JSOC
+#main_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5'
+#goes_data_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/GOES_dataset.csv'
+#goes_attrs = utils.config_SF['goes_attrs']
+#ar_attrs = utils.config_SF['ar_attrs']
+#ar_segs = utils.config_sf['ar_segs']
+#
+#downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
+#downloader.download_jsoc_data(goes_data_path=goes_data_path, limit=None)
 
 
-def labelled_SF_pictures(pictures):
-    # we labelled each picture (AR) by using GOES database. We query this db when
-    # a NOAA nb is associated to the AR we're looking. The label is defined with
-    # the nearest GOES event within 24h after the picture has been taken. 
-    
-    match_count = 0
-    for pic in pictures:
-        # we look only pictures that have a NOAA nb
-        pic.flare_events = []
-        if(pic.get_noaas_nb() == 1):
-            noaa_num = pic.header['NOAA_AR']
-            tstart = parse_time(pic.get_t_rec())
-            timeRange = TimeRange(tstart, timedelta(1))
-            goes_events = goes_db.get_goes_event_list(timeRange)
-            # Now look into goes event
-            for event in goes_events:
-                if event['noaa_active_region'] == noaa_num: # we find a match !
-                    pic.flare_events += [{'event_class': event['goes_class'],
-                                        'event_date': event['event_date'],
-                                       'start_time': event['start_time'],
-                                       'peak_time': event['peak_time'],
-                                       'end_time': event['end_time']}]
-                    match_count += 1
-    print('Proportion of match found: '+str(match_count*100.0/len(pictures))+'%')
 
-# Tranforms a binary file into a Python object
-def get_db(file_path):
-    with open(file_path, 'rb') as f:
-        db = pickle.load(f)
-    return db
 
-def picture_show(pics, segs = 'Bp,Bp_err,Br,Br_err,Bt,Bt_err,Dopplergram,magnetogram,continuum'):
-    segs = re.split(' ?, ?', segs)
-    flare_class = pics['flare_events'][0]['event_class']
-    peak = pics['flare_events'][0]['peak_time']
-    trec = pics['header']['T_REC']
-    noaa = pics['header']['NOAA_ARS']
-    harp = pics['header']['HARPNUM']
-    nb_channels = len(segs)
-    # Print every channels of an image
-    fig, axes = plt.subplots(int(nb_channels/3)+(nb_channels%3>0), \
-                             int(3*(nb_channels>=3)+nb_channels*(nb_channels<3)),\
-                             figsize=(15, 7.5))
-    for i, ax in enumerate(axes.flat):
-        if(i < nb_channels):
-        # Plot image.
-            ax.imshow(pics[segs[i]])
-            ax.set_xlabel('{}'.format(segs[i]))
-            # Remove ticks from the plot.
-            ax.set_xticks([])
-            ax.set_yticks([])
-    fig.suptitle('AR {} (HARP {}) taken on {}\n with peak flux magnitude {}\n(peak time: {})'.\
-                 format(noaa, harp, trec, flare_class, peak), fontsize=14, fontweight='bold')
-    fig.subplots_adjust(hspace=0.1, wspace=0.1)
-    plt.show()
-    
-path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery'
-tstart = '2010/05/1 00:00:00';
-tend = '2018/06/20 00:00:00';
-goes_dataset_path = path + '/GOES_dataset.csv'
-SF_dataset_positive_path = path + '/SF-positive/SF_positive'
-SF_dataset_negative_path = path + '/SF-negative/SF_negative'
-regex_SF_name = 'SF_*_part_[0-9]*.*'
+#### TEMP FUNCTIONS #####
+def pyBin_to_hdf5(db, part):
+    with h5py.File('jsoc_data_part_{}.hdf5'.format(part), 'w') as file:
+        vid_counter  = 0
+        for _, vid in db.items():
+            video= file.create_group('video{}'.format(vid_counter))
+            for attr, v in vid.flare_event.items():
+                video.attrs[attr] = v
+            for k in range(len(vid.frames)):
+                f = vid.frames[k]
+                frame = video.create_group('frame{}'.format(k))
+                for key, v in f.header.items():
+                    frame.attrs[key] = v
+                frame.attrs['SEGS'] = np.string_(list(f.dict_segs.keys()))
+                data = np.zeros(tuple(f.size)+(len(f.dict_segs),), dtype=np.float32)
+                seg_count = 0
+                for key, v in f.dict_segs.items():
+                    data[:,:,seg_count] = v
+                    seg_count += 1
+                frame.create_dataset('channels', data=data, dtype=np.float32)
+            vid_counter += 1
 
-#import_GOES_dataset('GOES_dataset.csv', path, None, tstart, tend)
-#import_SF_dataset(goes_dataset_path, SF_dataset_positive_path, '(M|X)')
-#clean_SF_dataset(path+'/SF-positive-data-parts', regex_SF_name)
-#import_SF_dataset(goes_dataset_path, SF_dataset_negative_path, 'B')
-#clean_SF_dataset(path+'/SF-negative-data-parts', regex_SF_name)
-import_SF_dataset(goes_dataset_path, SF_dataset_positive_path, '(M|X)',\
-                  keys_str = 'T_REC, NOAA_AR, HARPNUM,LAT_FWT,LON_FWT,SIZE,SIZE_ACR,NACR,NPIX,LAT_MIN,LAT_MAX,LON_MIN,LON_MAX',\
-                  nearest_SF_event = False,\
-                  sample_time='@1h',\
-                  nb_parts = 100,
-                  limit = None)
 
-import_SF_dataset(goes_dataset_path, SF_dataset_positive_path, 'B',\
-                  keys_str = 'T_REC, NOAA_AR, HARPNUM,LAT_FWT,LON_FWT,SIZE,SIZE_ACR,NACR,NPIX,LAT_MIN,LAT_MAX,LON_MIN,LON_MAX',\
-                  nearest_SF_event = False,\
-                  sample_time='@1h',\
-                  nb_parts = 100,
-                  limit = 2500) 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
   
-    
-#    # returns a list of SF_pictures from a list of fits files
-#def extract_HMI_SHARP_dataset(path, ignore_incorrect_files = True):
-#    # First, extract all the data from fits files
-#    os.chdir(path) # we set the right current directory
-#    # Now, iterate over all the files
-#    pics_dict = {} # Name <-> SF_picture
-#    possible_segments = SF_picture.attrString
-#    files = glob.glob('*.fits')
-#    count_progress = 0
-#    count_ignored_file = 0
-#    for file in files:
-#        # small tests
-#        if(not re.match('hmi\.sharp_cea_720s\.[1-9][0-9]*\..*\.'+\
-#                         possible_segments+'\.fits', file)):
-#            if (not ignore_incorrect_files):
-#                print('Error while scanning file '+file)
-#                return None
-#            else:
-#                count_ignored_file += 1
-#        else:
-#            hdu = fits.open(file)# Read the fits file
-#            if(len(hdu) != 2):
-#                print('Wrong size for fits file '+file)
-#                return None
-#            hdu[1].verify('silentfix') # fix header issues
-#            file_decomposed = re.split('\.', file)
-#            pic_name = file_decomposed[2] + file_decomposed[3]
-#            if(pic_name in pics_dict):
-#                SF_pic = pics_dict[pic_name]
-#                SF_pic.setAttr(file_decomposed[4], hdu[1].data)
-#            else:
-#                SF_pic = SF_picture()
-#                SF_pic.header = hdu[1].header
-#                SF_pic.setAttr(file_decomposed[4], hdu[1].data)
-#                pics_dict[pic_name] = SF_pic
-#            hdu.close()
-#        count_progress += 1
-#        if(int(count_progress*100.0/len(files)) % 10 == 0): #update every 10%
-#            print('Scanning '+str(int(count_progress*100.0/len(files)))+'%')
-#    print('Ignored files: '+str(count_ignored_file*100.0/len(files))+'%')
-#    # Every picture is ready.
-#    return (list(pics_dict.values()))
     
     
