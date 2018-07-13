@@ -18,17 +18,23 @@ class Data_Gen:
     data_dims = None 
     segs = None
     database = None
+    subsampling = None
     preprocessor = None
     
     def __init__(self, data, config):
         self.paths_to_file = []
         self.size_of_files = []
-        self.database = data
-        self.memory_size =  config['batch_memsize']
-        self.data_dims = config['data_dims']
-        self.segs = config['segs']
-        self.preprocessor = pp.Preprocessor()
+        self.memory_size =  config['batch_memsize']        
         paths = config['paths']
+
+        if(data == 'SF'):
+            self.preprocessor = pp.Preprocessor(data, [], config['subsampling'], 
+                                                config['nb_classes'], config['data_dims'], 
+                                                config['resize_method'], config['segs'],
+                                                config['time_step'])
+        else:
+            self.preprocessor = pp.Preprocessor(data)
+
         # First check
         for path in paths:
             if os.path.exists(path):
@@ -38,7 +44,7 @@ class Data_Gen:
                         size = os.path.getsize(path_to_file)/(1024*1024)
                         if(size <= self.memory_size):
                             self.paths_to_file += [path_to_file]
-                            self.size_of_files += [size]
+                            self.size_of_files += [size/float(config['subsampling'])]
                         else:
                             print('File {} will not fit in memory. Ignored'.format(path_to_file))
                     else:
@@ -62,14 +68,11 @@ class Data_Gen:
                 break
         self.size_of_files = [s for k, s in enumerate(self.size_of_files) if k not in argsort[:counter]]
         self.paths_to_file = [s for k, s in enumerate(self.paths_to_file) if k not in argsort[:counter]]
-
-        (features, labels) = preprocessing.create_tf_dataset(files_in_batch, \
-                                                            picture_shape = self.data_dims[0:2],\
-                                                            segs = self.segs)
-        features = np.array(features, dtype=np.float32)
-        labels = np.array(labels, dtype=np.int32)        
-        return (features, labels)
-            
+        self.preprocessor.set_files(self.paths_to_files)
+        
+        return self.preprocessor.extract_features()
+    
+    @staticmethod
     def get_random_batch(x, y, batch_size):
         idx = np.random.choice(len(x),
                                size=batch_size,

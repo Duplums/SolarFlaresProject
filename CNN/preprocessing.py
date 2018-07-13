@@ -8,16 +8,10 @@ There is 2 different types of data:
 
 
 
-import os, glob, sys, re
+import os, math, drms, traceback
 import h5py as h5
-import math
 import numpy as np
-import pickle
-import matplotlib.pyplot as plt
 import skimage.transform as sk
-import drms
-import warnings, traceback
-from DataQuery import DataWrapper
 
 class Preprocessor:
     
@@ -44,7 +38,7 @@ class Preprocessor:
                  resize_method = 'LIN_RESIZING', segs = ['Bp', 'Br', 'Bt'],
                  time_step = 60):
         
-        self.paths_to_files = paths_to_files
+        self.paths_to_files = list(paths_to_files)
         self.database = db
         if(db in {'MNIST', 'CIFAR', 'IMG_NET'}):
             print('Warning: no preprocessing for this data base. We assert that the files are organized as follows:\n')
@@ -64,6 +58,9 @@ class Preprocessor:
         else:    
             print('Data base unknown.')
             raise
+            
+    def set_files(self, paths_to_files):
+        self.path_to_files = list(paths_to_files)
     
     def add_files(self, paths_to_files):
         self.paths_to_file += list(paths_to_files)
@@ -80,8 +77,7 @@ class Preprocessor:
     
     # Assigns a label (int number) associated to a flare class.
     # This label depends of the number of classes.
-    @staticmethod
-    def _label(flare_class):
+    def _label(self, flare_class):
         if(self.nb_classes == 2):
             return int(flare_class[0] >= 'M')
         else:
@@ -191,19 +187,20 @@ class Preprocessor:
         
         return (features, labels)
     
-    def _extract_timeseries_from_video(self, vid_key, scalars):
-        res = np.zeros((len(features), len(vid['frames'])), dtype=np.float32)
-        sample_time = np.zeros(len(vid['frames']), dtype=np.float32)
-        tf = drms.to_datetime(vid['flare_event']['end_time'])
+    
+    # Takes a video and a list of scalars as input and returns the corresponding
+    # time series.
+    def _extract_timeseries_from_video(self, vid, scalars):
+        res = np.zeros((len(scalars), len(vid)), dtype=np.float32)
+        sample_time = np.zeros(len(vid), dtype=np.float32)
+        tf = drms.to_datetime(vid.attrs['end_time'])
         i = 0
         j = 0
-        for pic in vid['frames']:
-            ti = drms.to_datetime(pic['header']['T_REC'])
+        for frame_key in vid.keys():
+            ti = drms.to_datetime(vid[frame_key].attrs['T_REC'])
             sample_time[j] = (tf - ti).total_seconds()/60
-            for feature in features:
-                res[i,j] = pic['header'][feature]
-                if(np.isnan(res[i,j])):
-                    warnings.warn('Timeseries \'{}\' contains \'Nan\' for video {}'.format(feature, ti))
+            for scalar in scalars:
+                res[i,j] = vid[frame_key].attrs[scalar]
                 i += 1
             j += 1
             i = 0
@@ -215,92 +212,98 @@ class Preprocessor:
     # begin and when they end (from an event, time reversed). If values are missing (<5% by default), 
     # they are interpolated.
     def extract_timeseries(self, scalars, tstart, tend, loss=0.05):
-        assert 0 <= loss < 1 and tstart <= tend <= 120*12 # max: 24h
-            nb_frames = int((tend - tstart)/timestep) + 1
-            nb_ts = len(features)
-            sample_time_th = np.linspace(tstart, tend, nb_frames)
-            # we do not know yet how many videos match
-            res = []
-            for key, vid in db.items():
-                ts, sample_time = get_timeseries_from_video(vid)
-                sample_time = np.array(sample_time, dtype = np.float32)
-                i_start = np.argmin(abs(sample_time - tstart))
-                i_end = np.argmin(abs(sample_time - tend))
-                if(np.any(np.isnan(ts))):
-                    warnings.warn('Video {} ignored because it contains \'NaN\'.'.format(key))
-                elif(abs(sample_time[i_start] - tstart) <= timestep):
-                    nb_frames_in_vid = i_end - i_start + 1
-                    if(1 - nb_frames_in_vid/nb_frames <= loss):
-                        res_vid = np.zeros((nb_ts, nb_frames), dtype=np.float32)
-                        for k in range(nb_ts):
-                            res_vid[k,:] = np.interp(sample_time_th, sample_time, ts[k,:])
-                        res += [res_vid]
-            return np.array(res, dtype=np.float32)
-
-
-
-
-
-
-
-
-
-
-
-
-def plot_timeseries_from_video(vid, features = ['SIZE', 'SIZE_ACR', 'NACR']):
-    timeseries, sample_time = get_timeseries_from_video(vid, features)
-    (n,p) = np.shape(timeseries)
-    fig, axes = plt.subplots(n, 1)
-    fig.subplots_adjust(hspace=0.3, wspace=0.3)
-    for i, ax in enumerate(axes.flat):
-        ax.plot(sample_time, timeseries[i,:])
-        ax.set_ylabel(features[i])
-        ax.set_xlabel('Time before event (in minutes)\n Flare class {}'.format(vid['flare_event']['event_class']))
-    plt.show()
-
-
-    
-
-
-def plot_pictures(pics, labels, preds = None, segs='Bp,Br,Bt,Dopplergram,Continuum,Magnetogram'):
-    assert len(pics) == len(labels) > 0 and ((preds is None) or len(preds) == len(labels))
-    segs = re.split(' ?, ?', segs)
-    pics_shape = np.shape(pics)
-    if(len(pics_shape) != 4):
-        print('Shape of pictures must be nb_pics x height x weight x nb_channels')
-        return False
-    nb_channels = pics_shape[3]
-    nb_pics = pics_shape[0]
-    assert len(segs) == nb_channels
-
-    for k in range(nb_pics):
-        # Print every channels of an image
-        pic = pics[k]
-        if(nb_channels == 1):
-            plt.imshow(pic[:,:,0])
-            if(preds is None):
-                plt.xlabel('Label {0}'.format(labels[k]))
+        if(self.database != 'SF'):
+            print('The data base must be from JSOC.')
+            return None
+        
+        nb_frames = int((tend - tstart)/self.time_step) + 1
+        nb_scalars = len(scalars)
+        sample_time = np.linspace(tstart, tend, nb_frames)
+        res = []
+        print('{} frames are considered from {}min before a solar eruption to {}min.'.format(nb_frames, tstart, tend))
+        print('INFO: a linear interpolation is used to reconstruct the time series.')
+        for file_path in self.paths_to_file:
+            if(os.path.isfile(file_path)):
+                try:
+                    with h5.File(file_path, 'r') as db:
+                        for vid_key in db.keys():
+                            vid_time_series, vid_sample_time = self._extract_timeseries_from_video(db[vid_key], scalars)
+                            i_start = np.argmin(abs(sample_time - tstart))
+                            i_end = np.argmin(abs(sample_time - tend))
+                            if(np.any(np.isnan(vid_time_series))):
+                                print('Video {} ignored because the time series associated contains \'NaN\'.'.format(vid_key))
+                            elif(abs(sample_time[i_start] - tstart) <= self.time_step):
+                                nb_frames_in_vid = i_end - i_start + 1
+                                if(1 - nb_frames_in_vid/nb_frames <= loss):
+                                    res_vid = np.zeros((nb_scalars, nb_frames), dtype=np.float32)
+                                    for k in range(nb_scalars):
+                                        res_vid[k,:] = np.interp(sample_time, vid_sample_time, vid_time_series[k,:])
+                                    res += [res_vid]
+                            
+                except:
+                    print('Impossible to extract time series from file {}'.format(file_path))
+                    print(traceback.format_exc())
             else:
-                plt.xlabel('Label {0}, Pred {1}'.format(preds[k]))
-            plt.xticks([])
-            plt.yticks([])
-        else:
-            fig, axes = plt.subplots(int(nb_channels/3)+(nb_channels%3>0), \
-                                     int(3*(nb_channels>=3)+nb_channels*(nb_channels<3)),\
-                                     figsize=(15, 7.5))
-            for i, ax in enumerate(axes.flat):
-                if(i < nb_channels):
-                    # Plot image.
-                    ax.imshow(pic[:,:,i])
-                    if(preds is None):
-                        ax.set_xlabel('{0}, label {1}'.format(segs[i], labels[k]))
-                    else:
-                        ax.set_xlabel('{0}, \n Label {1}, pred {2}'.format(segs[i], labels[k], preds[k]))
-                    # Remove ticks from the plot.
-                    ax.set_xticks([])
-                    ax.set_yticks([])
-            fig.subplots_adjust(hspace=0.05, wspace=0.1)
+                print('File {} does not exist. Ignored'.format(file_path))
 
-        plt.show()
+            return np.array(res, dtype=np.float32), sample_time
+
+
+
+#
+#def plot_timeseries_from_video(vid, features = ['SIZE', 'SIZE_ACR', 'NACR']):
+#    timeseries, sample_time = get_timeseries_from_video(vid, features)
+#    (n,p) = np.shape(timeseries)
+#    fig, axes = plt.subplots(n, 1)
+#    fig.subplots_adjust(hspace=0.3, wspace=0.3)
+#    for i, ax in enumerate(axes.flat):
+#        ax.plot(sample_time, timeseries[i,:])
+#        ax.set_ylabel(features[i])
+#        ax.set_xlabel('Time before event (in minutes)\n Flare class {}'.format(vid['flare_event']['event_class']))
+#    plt.show()
+#
+#
+#    
+#
+#
+#def plot_pictures(pics, labels, preds = None, segs='Bp,Br,Bt,Dopplergram,Continuum,Magnetogram'):
+#    assert len(pics) == len(labels) > 0 and ((preds is None) or len(preds) == len(labels))
+#    segs = re.split(' ?, ?', segs)
+#    pics_shape = np.shape(pics)
+#    if(len(pics_shape) != 4):
+#        print('Shape of pictures must be nb_pics x height x weight x nb_channels')
+#        return False
+#    nb_channels = pics_shape[3]
+#    nb_pics = pics_shape[0]
+#    assert len(segs) == nb_channels
+#
+#    for k in range(nb_pics):
+#        # Print every channels of an image
+#        pic = pics[k]
+#        if(nb_channels == 1):
+#            plt.imshow(pic[:,:,0])
+#            if(preds is None):
+#                plt.xlabel('Label {0}'.format(labels[k]))
+#            else:
+#                plt.xlabel('Label {0}, Pred {1}'.format(preds[k]))
+#            plt.xticks([])
+#            plt.yticks([])
+#        else:
+#            fig, axes = plt.subplots(int(nb_channels/3)+(nb_channels%3>0), \
+#                                     int(3*(nb_channels>=3)+nb_channels*(nb_channels<3)),\
+#                                     figsize=(15, 7.5))
+#            for i, ax in enumerate(axes.flat):
+#                if(i < nb_channels):
+#                    # Plot image.
+#                    ax.imshow(pic[:,:,i])
+#                    if(preds is None):
+#                        ax.set_xlabel('{0}, label {1}'.format(segs[i], labels[k]))
+#                    else:
+#                        ax.set_xlabel('{0}, \n Label {1}, pred {2}'.format(segs[i], labels[k], preds[k]))
+#                    # Remove ticks from the plot.
+#                    ax.set_xticks([])
+#                    ax.set_yticks([])
+#            fig.subplots_adjust(hspace=0.05, wspace=0.1)
+#
+#        plt.show()
         
