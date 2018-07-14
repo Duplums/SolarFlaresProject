@@ -3,9 +3,9 @@ from sunpy.time import TimeRange
 import sunpy.instr.goes as goes_db
 from datetime import timedelta
 import drms, h5py
-import os, csv, sys, re
+import os, csv, traceback, re
+from CNN import utils
 import numpy as np
-import utils
 
 ''' This class aims to download the data from JSOC and to convert it into 
     HDF5 files. For the label and other metadata information, it will be
@@ -189,7 +189,7 @@ class Data_Downloader:
             part_counter = 0
             vid_counter = 0
             counter = 0
-            current_save_file = h5py.File(files_core_name+str(part_counter)+'.hdf5', 'w') 
+            current_save_file = h5py.File('{}_part_{}.hdf5'.format(files_core_name, part_counter), 'w') 
             for event in reader:
                 counter += 1
                 if(re.match(goes_row_pattern, str.join(',', event)) and 
@@ -232,12 +232,13 @@ class Data_Downloader:
                                     current_frame = current_vid.create_group('frame{}'.format(frame_counter))
                                     frame_counter += 1
                                     for k in range(len(self.ar_attrs)):
-                                        current_frame.attrs[self.ar_attrs[k]] = keys[k]
+                                        current_frame.attrs[self.ar_attrs[k]] = keys[self.ar_attrs[k]][nb_frame]
                                     current_frame.attrs['SEGS'] = np.string_(list(self.ar_segs))
                                     data_shape = None # unknown 
                                     frame = None
                                     seg_counter = 0
                                     for seg in self.ar_segs:
+                                        print('Segment {} donwloaded'.format(seg))
                                         url = 'http://jsoc.stanford.edu' + segments[seg][nb_frame]
                                         data = np.array(fits.getdata(url), dtype=np.float32)
                                         if(data_shape is None):
@@ -249,15 +250,15 @@ class Data_Downloader:
                                     current_frame.create_dataset('channels', data=frame)
 
                                     if(mem/(1024*1024) > 2*self.mem_limit):
-                                        print('Memory usage > {}MB. Dumping...'.format(2*self.mem_limit))
+                                        print('Memory usage > {}MB. Dumping...'.format(3*self.mem_limit))
                                         dumping = True
                                 nb_frame -= 1
                             
                             print('Video {} associated to event {} extracted ({} frames)'.format(vid_counter, event[peak], frame_counter))
 
                         except: 
-                            print('Impossible to extract data for event {0} (nb {1})'.format(start_time, counter))
-                            print(sys.exc_info())
+                            print('Impossible to extract data for event {0} (nb {1})'.format(event[peak], counter))
+                            print(traceback.format_exc())
                 else: # if the row pattern does not match 
                     print('Row ignored: '+str.join(',', event))
                 
@@ -270,7 +271,7 @@ class Data_Downloader:
                     part_counter += 1
                     vid_counter = 0
                     mem = 0
-                    current_save_file = h5py.File(files_core_name+str(part_counter), 'w') 
+                    current_save_file = h5py.File('{}_part_{}.hdf5'.format(files_core_name, part_counter), 'w') 
         
         # After the downloading, close the last file !
         current_save_file.close()
@@ -278,62 +279,17 @@ class Data_Downloader:
         return True
 
 
-#main_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5'
-#goes_data_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/GOES_dataset.csv'
-#goes_attrs = utils.config_SF['goes_attrs']
-#ar_attrs = utils.config_SF['ar_attrs']
-#ar_segs = utils.config_sf['ar_segs']
-#
-#downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
-#downloader.download_jsoc_data(goes_data_path=goes_data_path, limit=None)
+main_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5'
+goes_data_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/GOES_dataset.csv'
+goes_attrs = utils.config['SF']['goes_attrs']
+ar_attrs = utils.config['SF']['ar_attrs']
+ar_segs = utils.config['SF']['segs']
 
+downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
+downloader.download_jsoc_data(files_core_name = 'jsoc_data',
+                           directory = 'B-class-flares',
+                           goes_data_path =goes_data_path, 
+                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
+                           hours_before_event = 24, sample_time = '@1h',
+                           limit = 2500)
 
-
-
-#### TEMP FUNCTIONS #####
-def pyBin_to_hdf5(db, part):
-    with h5py.File('jsoc_data_part_{}.hdf5'.format(part), 'w') as file:
-        vid_counter  = 0
-        for _, vid in db.items():
-            video= file.create_group('video{}'.format(vid_counter))
-            for attr, v in vid.flare_event.items():
-                video.attrs[attr] = v
-            for k in range(len(vid.frames)):
-                f = vid.frames[k]
-                frame = video.create_group('frame{}'.format(k))
-                for key, v in f.header.items():
-                    frame.attrs[key] = v
-                frame.attrs['SEGS'] = np.string_(list(f.dict_segs.keys()))
-                data = np.zeros(tuple(f.size)+(len(f.dict_segs),), dtype=np.float32)
-                seg_count = 0
-                for key, v in f.dict_segs.items():
-                    data[:,:,seg_count] = v
-                    seg_count += 1
-                frame.create_dataset('channels', data=data, dtype=np.float32)
-            vid_counter += 1
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-    
-    

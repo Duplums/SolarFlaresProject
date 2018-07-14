@@ -13,10 +13,10 @@ config = { 'SF': {'data_dims': [256, 512, 9],
                   'num_steps': 100, # nb step / batch (4GB)
                   'checkpoint_iter': 100, # save every 100 global iteration
                   'ar_attrs' : ['T_REC', 'NOAA_AR', 'HARPNUM', 'LAT_FWT', 'LON_FWT',
-                                'SIZE', 'SIZE_ACR', 'NACR,NPIX', 'LAT_MIN', 'LAT_MAX',
+                                'SIZE', 'SIZE_ACR', 'NACR', 'NPIX', 'LAT_MIN', 'LAT_MAX',
                                 'LON_MIN', 'LON_MAX'],
                   'segs': ['Bp', 'Bp_err', 'Br', 'Br_err', 'Bt', 'Bt_err', 'Dopplergram', 'continuum', 'magnetogram'],
-                  'goes_attrs' : ['goes_class', 'noaa_active_region', 'event_date', 'start_time', 'end_time', 'peak_time'],
+                  'goes_attrs' : ['event_class', 'noaa_active_region', 'event_date', 'start_time', 'end_time', 'peak_time'],
                   'paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/positives', 
                             '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/negatives']
                   },
