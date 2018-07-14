@@ -57,10 +57,10 @@ def train_model(config, train_data_gen):
             grads = optimizer.compute_gradients(training_model.loss)
             grad_step = optimizer.apply_gradients(grads)
         
-        global_init = tf.global_variables_initializer() # Every weights
-        local_init = tf.local_variables_initializer() # For accuracy
-        saver = tf.train.Saver()
         merged = tf.summary.merge_all()
+        global_init = tf.global_variables_initializer() # Every weights
+        local_init = tf.local_variables_initializer() # For metrics
+        saver = tf.train.Saver()
 
     # init and run training session
     print('Initializing training graph.')
@@ -85,23 +85,31 @@ def train_model(config, train_data_gen):
             for step in range(num_steps_per_epoch):
                 input_data_batch, input_labels_batch = data_gen.Data_Gen.get_random_batch(x_train, y_train, batch_size)
                 inputs = {input_data : input_data_batch, input_labels : input_labels_batch, dyn_learning_rate : learning_rate}
-                ops = [merged, grad_step, training_model.loss, training_model.accuracy, training_model.update_acc, training_model.prob]
-                # run the optimization
+                ops = [merged, grad_step, training_model.loss, training_model.prob, training_model.accuracy_up,
+                       training_model.precision_up, training_model.recall_up]
+                metrics = [training_model.accuracy, training_model.precision, training_model.recall,
+                           training_model.accuracy_per_class]
+                # runs the optimization and updates the metrics
                 results = sess.run(ops, feed_dict=inputs)
+                # computes the metrics
+                metrics = sess.run(metrics)
                 it_global += 1
                 # upload the learning rate and the old_loss
-                if(abs(results[3] - old_loss) < epsilon):
+                if(abs(results[2] - old_loss) < epsilon):
                     learning_rate /= 10
-                old_loss = results[3]
+                old_loss = results[2]
                 # plot the variables in TensorBoard
                 train_writer.add_summary(results[0])
-                # plot in console
-                print('Iteration ({}) {}, accuracy : {}, loss : {}'.format(epochs, step, results[3], results[2]))
+                # plot in console the accuracy per class
+                print('Epoch {}, it {}, accuracy per class : {}, loss : {}'.format(epochs, step, metrics[3], results[2]))
+                if(step == num_steps_per_epoch - 1):
+                    confusion_matrix = sess.run(training_model.confusion_matrix)
+                    print('\nConfusion matrix at the end of epoch (batch {}) {}: {}'.format(epochs, step, confusion_matrix))
                 # save the weigths
                 if(it_global % checkpoint_iter == 0 or (step == num_steps_per_epoch-1 and epochs == num_epochs-1)):
                     saver.save(sess, save_path=os.path.join(checkpoint_dir,'.{}'.format(it_global)))
                     print('Checkpoint saved')
-    
+            
     end = time.time()
     print("Time usage: " + str(timedelta(seconds=int(round(end-start)))))
     

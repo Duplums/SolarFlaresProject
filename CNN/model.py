@@ -102,21 +102,24 @@ class Model:
             # Results
             self.logits = self.fc_layer(self.dense3, 32, self.nb_classes, 'logits', activation=None, dropout=False)
             self.prob = tf.nn.softmax(self.logits)
+            self.pred = tf.argmax(self.prob, axis=1)
             self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(labels, self.nb_classes), self.logits)
-            self.accuracy, self.update_acc = tf.metrics.accuracy(tf.argmax(self.logits, axis=1), labels)
+            self.confusion_matrix = tf.confusion_matrix(labels, self.pred, self.nb_classes, name="confusion_matrix")
+
+            # Define our metrics
+            self.accuracy, self.accuracy_op = tf.metrics.accuracy(labels, self.pred, name="accuracy")
+            self.precision, self.precision_op = tf.metrics.precision(labels, self.pred, name="precision")
+            self.recall, self.recall_op = tf.metrics.recall(labels, self.pred, name="recall")
+            self.accuracy_per_class = self.compute_accuracy_per_class(labels, self.pred, name="accuracy_per_class")
             
             # Summary for tensorboard visualization
+            tf.summary.scalar('Loss', self.loss)
+            tf.summary.scalar('Accuracy', self.accuracy)
+            tf.summary.scalar('Precision', self.precision)
+            tf.summary.scalar('Recall', self.recall)
             self.weights_summary(tf.get_variable('conv5_3/kernel',shape=[3,3,512,512]), 'last_conv_weights')
             self.weights_summary(self.dense3, 'last_fc_layer')
             self.prob_summary(nb_pics)
-            tf.summary.scalar('Loss', self.loss)
-            tf.summary.scalar('Accuracy', self.accuracy)
-            
-            
-        return {'proba':self.prob, \
-                'loss':self.loss, \
-                'accuracy':self.accuracy, \
-                'acc_update':self.update_acc}
     
 
     def conv_layer(self, input_, filter_shape, name, padding='SAME', activation='relu', strides=[1,1,1,1]):
@@ -158,13 +161,23 @@ class Model:
             
             return fc
     
+    
+    def compute_acc_per_class(self, labels, pred, name):
+        with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+            nb_corrects_per_class = tf.get_variable('nb_corrects', [self.nb_classes], initializer=tf.constant(0, shape=[self.nb_classes], dtype=tf.float32))
+            nb_total_per_class = tf.get_variable('total', [self.nb_classes], initializer=tf.constant(0, shape=[self.nb_classes], dtype=tf.int32))
+            for k in range(len(labels)):
+                 nb_corrects_per_class[labels[k]] += 1
+                 nb_total_per_class[labels[k]] += (labels[k] == pred[k])
+            return tf.div(nb_corrects_per_class, nb_total_per_class)
+        
     def prob_summary(self, nb_pics):
         with tf.variable_scope('prob_summary'):
             for i in range(nb_pics):
                 for j in range(self.nb_classes):
                     tf.summary.scalar('prob_pic_{}_class_{}'.format(i,j), self.prob[i,j])
                 
-    
+    @staticmethod
     def weights_summary(self, var, name):
         with tf.variable_scope(name):
             var_flatten = tf.layers.flatten(var)
