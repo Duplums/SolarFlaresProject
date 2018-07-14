@@ -2,8 +2,8 @@
             # CONFIG FOR SOLAR FLARES DATA
 config = { 'SF': {'data_dims': [256, 512, 9],
                   'batch_memsize': 4*1024, # 4GB / batch
-                  'checkpoint': '/n/midland/w/dufumier/Documents/BlueSky/CNN/Checkpoints_SF',
-                  'tensorboard': '/n/midland/w/dufumier/Documents/BlueSky/CNN/Tensorboard/logs_SF',
+                  'checkpoint': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Checkpoints_SF',
+                  'tensorboard': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Tensorboard/logs_SF',
                   'learning_rate': 0.01,
                   'tolerance': 0.01,
                   'batch_norm': True,
@@ -17,14 +17,17 @@ config = { 'SF': {'data_dims': [256, 512, 9],
                                 'LON_MIN', 'LON_MAX'],
                   'segs': ['Bp', 'Bp_err', 'Br', 'Br_err', 'Bt', 'Bt_err', 'Dopplergram', 'continuum', 'magnetogram'],
                   'goes_attrs' : ['event_class', 'noaa_active_region', 'event_date', 'start_time', 'end_time', 'peak_time'],
+                  'subsampling' : 12,
+                  'resize_method': 'LIN_RESIZING',
+                  'time_step': 60, # time step used in each video
                   'paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/positives', 
                             '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/negatives']
                   },
            # CONFIG FOR MNIST DATA
           'MNIST': {'data_dims': [64, 64, 1],
                       'batch_memsize': 4*1024, # 4GB / batch
-                      'checkpoint': '/n/midland/w/dufumier/Documents/BlueSky/CNN/Checkpoints_MNIST',
-                      'tensorboard': '/n/midland/w/dufumier/Documents/BlueSky/CNN/Tensorboard/logs_MNIST',
+                      'checkpoint': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Checkpoints_MNIST',
+                      'tensorboard': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Tensorboard/logs_MNIST',
                       'learning_rate': 0.01,
                       'tolerance': 0.01,
                       'batch_norm': True,
@@ -34,6 +37,6 @@ config = { 'SF': {'data_dims': [256, 512, 9],
                       'num_steps': 500, # nb step / batch (4GB)
                       'checkpoint_iter': 500, # save every 500 global iteration
                       'segs': ['digit'],
-                      'paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset_MNIST']
+                      'paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/MNIST-HDF5']
                       }   
           }
