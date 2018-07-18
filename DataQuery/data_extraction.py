@@ -4,6 +4,7 @@ import sunpy.instr.goes as goes_db
 from datetime import timedelta
 import drms, h5py
 import os, csv, traceback, re
+import sys 
 from CNN import utils
 import numpy as np
 
@@ -186,7 +187,7 @@ class Data_Downloader:
             reader = csv.reader(file, delimiter=',')
             client = drms.Client()
             mem = 0 # Set a counter for the current cache memory (in bytes) used by videos
-            part_counter = 0
+            part_counter = 40
             vid_counter = 0
             counter = 0
             current_save_file = h5py.File('{}_part_{}.hdf5'.format(files_core_name, part_counter), 'w') 
@@ -238,7 +239,6 @@ class Data_Downloader:
                                     frame = None
                                     seg_counter = 0
                                     for seg in self.ar_segs:
-                                        print('Segment {} donwloaded'.format(seg))
                                         url = 'http://jsoc.stanford.edu' + segments[seg][nb_frame]
                                         data = np.array(fits.getdata(url), dtype=np.float32)
                                         if(data_shape is None):
@@ -287,9 +287,10 @@ ar_segs = utils.config['SF']['segs']
 
 downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
 downloader.download_jsoc_data(files_core_name = 'jsoc_data',
-                           directory = 'B-class-flares',
+                           directory = 'train/B-class-flares',
                            goes_data_path =goes_data_path, 
                            goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
+                           start_time = '2011-04-04',
                            hours_before_event = 24, sample_time = '@1h',
-                           limit = 2500)
+                           limit = 700)
 

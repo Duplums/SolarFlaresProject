@@ -8,7 +8,7 @@ There is 2 different types of data:
 
 
 
-import os, math, drms, traceback
+import os, math, drms, traceback, re, sys
 import h5py as h5
 import numpy as np
 import skimage.transform as sk
@@ -32,18 +32,19 @@ class Preprocessor:
     segs = None
     # What is the time step used for each video (in minutes) ?
     time_step = None
-    
-    def __init__(self, db, paths_to_files = [], subsampling = 1, 
+    # Directory where we save features (if needed)
+    features_dir = None
+    def __init__(self, db, paths_to_file = [], subsampling = 1, 
                  nb_classes = 2, pic_size = (256, 512), 
                  resize_method = 'LIN_RESIZING', segs = ['Bp', 'Br', 'Bt'],
-                 time_step = 60):
+                 time_step = 60, features_dir=None):
         
-        self.paths_to_files = list(paths_to_files)
+        self.paths_to_file = list(paths_to_file)
         self.database = db
-        if(db in {'MNIST', 'CIFAR', 'IMG_NET'}):
+        if(db in {'MNIST', 'CIFAR-10', 'IMG_NET'}):
             print('Warning: no preprocessing for this data base. We assert that the files are organized as follows:\n')
-            print('\t/features/[dataset]\n')
-            print('\t/labels/[dataset]\n')
+            print('\t/features[dataset]\n')
+            print('\t/labels[dataset]\n')
         elif(db == 'SF'):
             if(resize_method in {'LIN_RESIZING', 'QUAD_RESIZING', 'ZERO_PADDING'}):
                 self.subsampling = subsampling
@@ -52,6 +53,7 @@ class Preprocessor:
                 self.resize_method = resize_method
                 self.segs = segs
                 self.time_step = time_step
+                self.features_dir= features_dir
             else:
                 print('Resizing method unknown.')
                 raise
@@ -59,14 +61,14 @@ class Preprocessor:
             print('Data base unknown.')
             raise
             
-    def set_files(self, paths_to_files):
-        self.path_to_files = list(paths_to_files)
+    def set_files(self, paths_to_file):
+        self.paths_to_file = list(paths_to_file)
     
-    def add_files(self, paths_to_files):
-        self.paths_to_file += list(paths_to_files)
+    def add_files(self, paths_to_file):
+        self.paths_to_file += list(paths_to_file)
     
     def clear_files(self):
-        self.path_to_files = []
+        self.paths_to_file = []
    
     # Normalizes a picture
     @staticmethod
@@ -109,7 +111,7 @@ class Preprocessor:
                 print('NaN erased. Reshape operation: {} --> {}'.format(pic_shape, pic_reshape))
             
         if(self.resize_method == 'LIN_RESIZING'):
-            sk.resize(pic, self.pic_size, order=1, preserve_range=True)
+            return sk.resize(pic, self.pic_size, order=1, preserve_range=True)
         elif(self.resize_method == 'QUAD_RESIZING'):
             return sk.resize(pic, self.pic_size, order=2, preserve_range=True)
         else:
@@ -134,39 +136,70 @@ class Preprocessor:
     #   * features.dtype == float32
     #   * labels.dtype == int32
     
-    def extract_features(self):
+    def extract_features(self, saving = False, retrieve = False):
         features = None
         labels = None
         if(self.database == 'SF'):
             nb_channels = len(self.segs)
-            features = np.zeros((0,)+self.pic_size+(nb_channels,), dtype=np.float32)
-            labels = np.zeros(0, dtype=np.int32) 
+            features = []
+            labels = []
         
         for file_path in self.paths_to_file:
             if(os.path.isfile(file_path)):
                 try:
                     with h5.File(file_path, 'r') as db:
                         if(self.database == 'SF'):
-                            # Takes each video in each file, down samples the nb of frames
-                            # in each one and resize the frames according to 'resize_method'
-                            for vid_key in db.keys():
-                                frame_counter = 0
-                                for frame_key in db[vid_key].keys():
-                                    # subsample the video
-                                    if(frame_counter % self.subsampling == 0):
-                                        frame_tensor = np.zeros((1,)+self.pic_size+(nb_channels,), dtype=np.float32)
-                                        frame_segs = db[vid_key][frame_key].attrs['SEGS']
-                                        vid_flare_class = db[vid_key].attrs['event_class']
-                                        label = self._label(vid_flare_class)
-                                        channel_counter = 0
-                                        for k in range(len(frame_segs)):
-                                            # consider only certain segments
-                                            if(frame_segs[k] in self.segs):
-                                                frame_tensor[:,:,:,channel_counter] = self._normalize(self._resize(db[vid_key][frame_key]['channels'][:,:,k]))
-                                                channel_counter += 1
-                                        ## IT HAS BE IMPROVED ##
-                                        features = np.concatenate((features, frame_tensor), dtype=np.float32)
-                                        labels = np.concatenate((labels, label), dtype=np.int32)
+                            curr_features = None
+                            curr_labels = None
+                            features_name =  re.sub('.hdf5', '', os.path.basename(file_path)) + '_features.npy'
+                            labels_name = re.sub('.hdf5', '', os.path.basename(file_path)) + '_labels.npy'
+                            features_path = os.path.join(self.features_dir, features_name)
+                            labels_path = os.path.join(self.features_dir, labels_name)
+                            
+                            # First, check if we can retrieve features
+                            if(retrieve and os.path.isfile(features_path) 
+                                and os.path.isfile(labels_path)):
+                                try:
+                                    curr_features = np.load(features_path).tolist()
+                                    curr_labels = np.load(labels_path).tolist()
+                                    print('Features retrieved from {}, {}'.format(features_name, labels_name))
+                                except:
+                                    print('Error while retrieving features.')
+                                    print(traceback.format_exc())
+                            
+                            if(curr_features is None or curr_labels is None):
+                                # Takes each video in each file, down samples the nb of frames
+                                # in each one and resize the frames according to 'resize_method'
+                                curr_features = []
+                                curr_labels = []
+                                for vid_key in db.keys():
+                                    frame_counter = 0
+                                    for frame_key in db[vid_key].keys():
+                                        # subsample the video
+                                        if(frame_counter % self.subsampling == 0):
+                                            frame_tensor = np.zeros(self.pic_size+(nb_channels,), dtype=np.float32)
+                                            frame_segs = db[vid_key][frame_key].attrs['SEGS']
+                                            vid_flare_class = db[vid_key].attrs['event_class']
+                                            label = self._label(vid_flare_class)
+                                            channel_counter = 0
+                                            for k in range(len(frame_segs)):
+                                                # consider only certain segments
+                                                if(frame_segs[k].decode() in self.segs):
+                                                    frame_tensor[:,:,channel_counter] = self._normalize(self._resize(db[vid_key][frame_key]['channels'][:,:,k]))
+                                                    channel_counter += 1
+                                            curr_features += [frame_tensor]
+                                            curr_labels += [label]
+                                print('Features extracted from file {}.'.format(file_path))
+                                if(saving):
+                                    try:
+                                        np.save(features_path, np.array(curr_features, dtype=np.float32))
+                                        np.save(labels_path, np.array(curr_labels, dtype=np.float32))
+                                    except:
+                                        print('Impossible to save the features extracted.')
+                                        print(traceback.format_exc())
+                            features += curr_features
+                            labels += curr_labels
+                                
                         else:
                             curr_features = np.array(db['features'], dtype=np.float32)
                             curr_labels = np.array(db['labels'], dtype=np.int32)
@@ -175,17 +208,17 @@ class Preprocessor:
                                     features = curr_features
                                     labels = curr_labels
                                 else:
-                                    features = np.concatenate((features, curr_features), dtype=np.float32)
-                                    labels = np.concatenate((labels, curr_labels), dtype=np.int32)
+                                    features = np.concatenate((features, curr_features))
+                                    labels = np.concatenate((labels, curr_labels))
                             else:
-                                print('Features and labels have different lengths in file {}. Ignored'.format(file_path))  
+                                print('Features and labels have different lengths in file {}. Ignored'.format(file_path))
                 except:
                     print('Impossible to extract features from {}'.format(file_path))
                     print(traceback.format_exc())
             else:
                 print('File {} does not exist. Ignored'.format(file_path))
         
-        return (features, labels)
+        return (np.array(features, dtype=np.float32), np.array(labels, dtype=np.float32))
     
     
     # Takes a video and a list of scalars as input and returns the corresponding
@@ -247,6 +280,13 @@ class Preprocessor:
                 print('File {} does not exist. Ignored'.format(file_path))
 
             return np.array(res, dtype=np.float32), sample_time
+
+#############################
+#       TEMP FUNCS          #
+#############################
+
+
+
 
 
 

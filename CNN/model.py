@@ -24,12 +24,11 @@ class Model:
     def build_vgg16_like(self, data, labels):
         # data must have size nb_pictures x height x width x nb_channels
         assert type(data) is tf.Tensor and len(data.shape) == 4
-        assert type(labels) is tf.Tensor and labels.shape == (data.shape[0],)
+        assert type(labels) is tf.Tensor
         with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
             (nb_pics, height, width, nb_channels) = data.get_shape().as_list()
             
-            self.input_layer = tf.reshape(data, [nb_pics, height, width, nb_channels])
-            
+            self.input_layer = tf.cast(data, dtype=tf.float32)            
             # CONV3-64 [h, w, c] --> [h, w, 64]
             self.conv1_1 = self.conv_layer(self.input_layer, [3, 3, nb_channels, 64], 'conv1_1')
 
@@ -104,22 +103,27 @@ class Model:
             self.prob = tf.nn.softmax(self.logits)
             self.pred = tf.argmax(self.prob, axis=1)
             self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(labels, self.nb_classes), self.logits)
-            self.confusion_matrix = tf.confusion_matrix(labels, self.pred, self.nb_classes, name="confusion_matrix")
 
             # Define our metrics
-            self.accuracy, self.accuracy_op = tf.metrics.accuracy(labels, self.pred, name="accuracy")
-            self.precision, self.precision_op = tf.metrics.precision(labels, self.pred, name="precision")
-            self.recall, self.recall_op = tf.metrics.recall(labels, self.pred, name="recall")
-            self.accuracy_per_class = self.compute_accuracy_per_class(labels, self.pred, name="accuracy_per_class")
+            self.accuracy, self.accuracy_up = tf.metrics.accuracy(labels, self.pred, name="accuracy")
+            self.precision, self.precision_up = tf.metrics.precision(labels, self.pred, name="precision")
+            self.recall, self.recall_up = tf.metrics.recall(labels, self.pred, name="recall")
+            self.confusion_matrix, self.confusion_matrix_up = self.update_confusion_matrix(labels, self.pred, name="confusion_matrix")
+            self.accuracy_per_class = self.compute_acc_per_class(self.confusion_matrix)
             
+            #self.accuracy_per_class, self.accuracy_per_class_up = self.metric_acc_per_class(labels, self.pred, name="accuracy_per_class")
             # Summary for tensorboard visualization
             tf.summary.scalar('Loss', self.loss)
             tf.summary.scalar('Accuracy', self.accuracy)
             tf.summary.scalar('Precision', self.precision)
             tf.summary.scalar('Recall', self.recall)
-            self.weights_summary(tf.get_variable('conv5_3/kernel',shape=[3,3,512,512]), 'last_conv_weights')
+            confusion_image = tf.reshape( tf.cast(self.confusion_matrix, tf.float32),
+                                         [1, self.nb_classes, self.nb_classes, 1])
+            tf.summary.image('confusion', confusion_image)
+            self.weights_summary(tf.get_variable('conv1_1/kernel',shape=[3,3,nb_channels,64]), 'first_conv_weights')
             self.weights_summary(self.dense3, 'last_fc_layer')
-            self.prob_summary(nb_pics)
+            self.vector_summary(self.accuracy_per_class, 'Accuracy_Per_Class')
+            #self.prob_summary(nb_pics)
     
 
     def conv_layer(self, input_, filter_shape, name, padding='SAME', activation='relu', strides=[1,1,1,1]):
@@ -161,23 +165,28 @@ class Model:
             
             return fc
     
-    
-    def compute_acc_per_class(self, labels, pred, name):
+    def update_confusion_matrix(self, labels, pred, name):
         with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
-            nb_corrects_per_class = tf.get_variable('nb_corrects', [self.nb_classes], initializer=tf.constant(0, shape=[self.nb_classes], dtype=tf.float32))
-            nb_total_per_class = tf.get_variable('total', [self.nb_classes], initializer=tf.constant(0, shape=[self.nb_classes], dtype=tf.int32))
-            for k in range(len(labels)):
-                 nb_corrects_per_class[labels[k]] += 1
-                 nb_total_per_class[labels[k]] += (labels[k] == pred[k])
-            return tf.div(nb_corrects_per_class, nb_total_per_class)
-        
+            confusion_matrix= tf.get_variable('matrix', initializer=tf.zeros(shape=[self.nb_classes, self.nb_classes], dtype=tf.int32), trainable=False)
+            update = tf.assign_add(confusion_matrix, tf.confusion_matrix(labels, pred, self.nb_classes), name='update')
+            return confusion_matrix, update
+    
+    def compute_acc_per_class(self, confusion_matrix):
+        acc = tf.truediv(tf.diag_part(confusion_matrix), tf.reduce_sum(confusion_matrix, axis=0)) 
+        return acc
+    
+    # Useful for testing phase
+    def reset_metrics(self):
+        with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
+            reset =  [tf.variables_initializer([self.confusion_matrix])]
+            return(reset)
+    
     def prob_summary(self, nb_pics):
         with tf.variable_scope('prob_summary'):
             for i in range(nb_pics):
                 for j in range(self.nb_classes):
                     tf.summary.scalar('prob_pic_{}_class_{}'.format(i,j), self.prob[i,j])
                 
-    @staticmethod
     def weights_summary(self, var, name):
         with tf.variable_scope(name):
             var_flatten = tf.layers.flatten(var)
@@ -188,7 +197,11 @@ class Model:
             tf.summary.scalar('max', tf.reduce_max(var))
             tf.summary.scalar('min', tf.reduce_min(var))
     
-    
+    def vector_summary(self, vec, name):
+        with tf.variable_scope(name):
+            n_vec = vec.get_shape()[0]
+            for k in range(n_vec):
+                tf.summary.scalar('Component_{}'.format(k), vec[k])
         
     
     
