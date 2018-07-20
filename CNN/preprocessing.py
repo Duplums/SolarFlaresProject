@@ -8,10 +8,11 @@ There is 2 different types of data:
 
 
 
-import os, math, drms, traceback, re, sys
+import os, math, drms, traceback, re
+import matplotlib.pyplot as plt
+import tensorflow as tf
 import h5py as h5
 import numpy as np
-import skimage.transform as sk
 
 class Preprocessor:
     
@@ -69,13 +70,6 @@ class Preprocessor:
     
     def clear_files(self):
         self.paths_to_file = []
-   
-    # Normalizes a picture
-    @staticmethod
-    def _normalize(pic):
-        m = np.mean(pic)
-        sd = np.std(pic)
-        return (pic - m)/sd
     
     # Assigns a label (int number) associated to a flare class.
     # This label depends of the number of classes.
@@ -86,64 +80,124 @@ class Preprocessor:
             print('Number of classes > 2 case : not yet implemented')
             raise
     
-    # Resizes a picture using linear or quadratic interpolation or zero-padding.
-    def _resize(self, pic):
-        if(np.any(np.isnan(pic))):
-            print('Warning: NaN found in a picture. Trying to erase them...')
-            where_is_nan = np.argwhere(np.isnan(pic))
-            nan_up_left_corner = (min(where_is_nan[:,0]), min(where_is_nan[:,1]))
-            nan_down_right_corner = (max(where_is_nan[:,0]), max(where_is_nan[:,1]))
-            # Select only the biggest rectangle that does not contain 'NaN'
-            pic_shape = pic.shape
-            right_split_pic_width = nan_up_left_corner[1]
-            left_split_pic_width = pic_shape[1] - nan_down_right_corner[1]
-            if(right_split_pic_width > left_split_pic_width):
-                # conserve only the right picture's part
-                pic = pic[:, 0:nan_up_left_corner[1]]
-            else:
-                # otherwise, conserve the other part
-                pic = pic[:, nan_down_right_corner[1]+1:]
-            pic_reshape = pic.shape
-            
-            if(np.any(np.isnan(pic))):
-                print('Impossible to erase NaN.')
-            else:
-                print('NaN erased. Reshape operation: {} --> {}'.format(pic_shape, pic_reshape))
-            
-        if(self.resize_method == 'LIN_RESIZING'):
-            return sk.resize(pic, self.pic_size, order=1, preserve_range=True)
-        elif(self.resize_method == 'QUAD_RESIZING'):
-            return sk.resize(pic, self.pic_size, order=2, preserve_range=True)
+    # Returns the maximum size of pictures found in all files given to the preprocessor
+    def get_max_size(self):
+        if(self.database == 'SF'):
+            max_size = [-math.inf, -math.inf]
+            for file_path in self.paths_to_file:
+                if(os.path.isfile(file_path)):
+                    try:
+                        with h5.File(file_path, 'r') as db:
+                            for vid_key in db.keys():
+                                for frame_key in db[vid_key]:
+                                    if('channels' in db[vid_key][frame_key].keys() and
+                                       len(db[vid_key][frame_key]['channels'].shape) >=2):
+                                        max_size[0] = max(max_size[0], db[vid_key][frame_key]['channels'].shape[0])
+                                        max_size[1] = max(max_size[1], db[vid_key][frame_key]['channels'].shape[1])
+                                    
+                            
+                            
+                    except:
+                        print('Impossible to get the size of pictures in {}'.format(file_path))
+                        print(traceback.format_exc())
+                        
+                else:
+                    print('Warning: {} is not a file. Ignored'.format(file_path))
+            return max_size
         else:
-            current_pic_shape = pic.shape
-            resized_pic = np.zeros(self.pic_size, dtype=np.float32)
-            h_marge = math.floor((self.pic_size[0]-current_pic_shape[0])/2.0)
-            w_marge = math.floor((self.pic_size[1]-current_pic_shape[1])/2.0)
-            
-            if(h_marge < 0 or w_marge < 0):
-                print('Warning: zero-padding is used for picture of shape {} (common size is {})\n'.format(current_pic_shape, self.pic_size))
-                print('Picture is resized instead (using linear interpolation)')
-                return sk.resize(pic, self.pic_size, order=1, preserve_range=True)
-            
-            resized_pic[h_marge:h_marge+current_pic_shape[0],w_marge:w_marge+current_pic_shape[1]] = pic
-            return resized_pic
+            print('Wrong data base (got {} instead of \'SF\')'.format(self.database))
+            return None
+    # check 'NaN' in a frame that can have one or multiple channels. Returns
+    # a clean frame. INPUT: np array with shape (h, w, c)
+    @staticmethod
+    def _check_nan(frame):
+        shape = frame.shape
+        new_frame = None
+        if(len(shape) != 3):
+            print('Shape of frame must be (h, w, c) (got {})'.format(shape))
+            raise        
+        for c in range(shape[2]):
+            pic = frame[:,:,c]
+            if(np.any(np.isnan(pic))):
+                print('Warning: NaN found in a frame. Trying to erase them...')
+                where_is_nan = np.argwhere(np.isnan(pic))
+                nan_up_left_corner = (min(where_is_nan[:,0]), min(where_is_nan[:,1]))
+                nan_down_right_corner = (max(where_is_nan[:,0]), max(where_is_nan[:,1]))
+                # Select only the biggest rectangle that does not contain 'NaN'
+                pic_shape = pic.shape
+                right_split_pic_width = nan_up_left_corner[1]
+                left_split_pic_width = pic_shape[1] - nan_down_right_corner[1]
+                if(right_split_pic_width > left_split_pic_width):
+                    # conserve only the right picture's part
+                    pic = pic[:, 0:nan_up_left_corner[1]]
+                else:
+                    # otherwise, conserve the other part
+                    pic = pic[:, nan_down_right_corner[1]+1:]
+                pic_reshape = pic.shape
+                if(np.any(np.isnan(pic))):
+                    print('Impossible to erase NaN.')
+                else:
+                    print('NaN erased. Reshape operation: {} --> {}'.format(pic_shape, pic_reshape))
+            if(new_frame is None):
+                new_frame = np.zeros(pic.shape+(shape[2],), dtype=np.float32)
+            try:
+                new_frame[:,:,c] = pic
+            except:
+                print('All channels are no coherents')
+                print('Previous channel:')
+                plt.imshow(frame[:,:,c-1])
+                plt.show()
+                print('New channel:')
+                plt.imshow(frame[:,:,c])
+                plt.show()
+                print(traceback.format_exc())
+                raise
+        return new_frame
+    
+    def _extract_frame(self, frame, frame_segs):
+        nb_channels = len(self.segs)
+        shape_frame = frame.shape[0:2] + (nb_channels,)
+        frame_tensor = np.zeros(shape_frame, dtype=np.float32)
+        channel_counter = 0
+        # Considers only certain segments
+        for k in range(len(frame_segs)):
+            if(frame_segs[k].decode() in self.segs):
+                frame_tensor[:,:,channel_counter] = frame[:,:,k]
+                channel_counter += 1
+        # Checks 'NaN' (be careful ,the size might change)
+        frame_tensor = self._check_nan(frame_tensor)
+        shape_frame = frame_tensor.shape
+        # Resizes the frame and returns a Tensor
+        if(self.resize_method == 'LIN_RESIZING'):
+            return tf.image.resize_images(tf.image.per_image_standardization(frame_tensor), 
+                                          size=self.pic_size, method=tf.image.ResizeMethod.BILINEAR)
+        elif(self.resize_method == 'QUAD_RESIZING'):
+            return tf.image.resize_images(tf.image.per_image_standardization(frame_tensor), 
+                                          size=self.pic_size, method=tf.image.ResizeMethod.BICUBIC)
+        elif(self.resize_method == 'ZERO_PADDING'):
+            pad_x_up = math.floor((self.pic_size[0]-shape_frame[0])/2.0)
+            pad_x_down = self.pic_size[0] - (pad_x_up + shape_frame[0])
+            pad_y_left = math.floor((self.pic_size[1]-shape_frame[1])/2.0)
+            pad_y_right = self.pic_size[1] - (pad_y_left + shape_frame[1])
+            return tf.pad(tf.image.per_image_standardization(frame_tensor), 
+                          [[pad_x_up, pad_x_down], [pad_y_left, pad_y_right], [0, 0]])
+        else:
+            print('Error: unknown resizing method')
+            raise
+
     
     
     # Extract the data from the list of files according to the parameters set.
-    # OUTPUT : a tuple (features, labels) of 2 numpy arrays of dims and types:
+    # OUTPUT : a tuple (features, labels) of 2 Tensors of dims and types:
     #   * features.shape == (nb_samples, width, height, nb_channels)
     #   * labels.shape == (nb_samples, 1)
     #   * features.dtype == float32
     #   * labels.dtype == int32
     
     def extract_features(self, saving = False, retrieve = False):
-        features = None
-        labels = None
-        if(self.database == 'SF'):
-            nb_channels = len(self.segs)
-            features = []
-            labels = []
-        
+        features = []
+        labels = []
+        feature_counter= 0
         for file_path in self.paths_to_file:
             if(os.path.isfile(file_path)):
                 try:
@@ -151,22 +205,23 @@ class Preprocessor:
                         if(self.database == 'SF'):
                             curr_features = None
                             curr_labels = None
-                            features_name =  re.sub('.hdf5', '', os.path.basename(file_path)) + '_features.npy'
-                            labels_name = re.sub('.hdf5', '', os.path.basename(file_path)) + '_labels.npy'
-                            features_path = os.path.join(self.features_dir, features_name)
-                            labels_path = os.path.join(self.features_dir, labels_name)
-                            
+                            if((retrieve or saving) and self.features_dir is not None):
+                                features_name =  re.sub('.hdf5', '', os.path.basename(file_path)) + '_features.npy'
+                                labels_name = re.sub('.hdf5', '', os.path.basename(file_path)) + '_labels.npy'
+                                features_path = os.path.join(self.features_dir, features_name)
+                                labels_path = os.path.join(self.features_dir, labels_name)
                             # First, check if we can retrieve features
                             if(retrieve and os.path.isfile(features_path) 
                                 and os.path.isfile(labels_path)):
                                 try:
-                                    curr_features = np.load(features_path).tolist()
-                                    curr_labels = np.load(labels_path).tolist()
+                                    curr_features = np.load(features_path)
+                                    curr_labels = np.load(labels_path)
+                                    feature_counter += len(curr_features)
                                     print('Features retrieved from {}, {}'.format(features_name, labels_name))
                                 except:
                                     print('Error while retrieving features.')
                                     print(traceback.format_exc())
-                            
+                                    raise
                             if(curr_features is None or curr_labels is None):
                                 # Takes each video in each file, down samples the nb of frames
                                 # in each one and resize the frames according to 'resize_method'
@@ -174,21 +229,15 @@ class Preprocessor:
                                 curr_labels = []
                                 for vid_key in db.keys():
                                     frame_counter = 0
+                                    label = self._label(db[vid_key].attrs['event_class'])
                                     for frame_key in db[vid_key].keys():
                                         # subsample the video
                                         if(frame_counter % self.subsampling == 0):
-                                            frame_tensor = np.zeros(self.pic_size+(nb_channels,), dtype=np.float32)
-                                            frame_segs = db[vid_key][frame_key].attrs['SEGS']
-                                            vid_flare_class = db[vid_key].attrs['event_class']
-                                            label = self._label(vid_flare_class)
-                                            channel_counter = 0
-                                            for k in range(len(frame_segs)):
-                                                # consider only certain segments
-                                                if(frame_segs[k].decode() in self.segs):
-                                                    frame_tensor[:,:,channel_counter] = self._normalize(self._resize(db[vid_key][frame_key]['channels'][:,:,k]))
-                                                    channel_counter += 1
-                                            curr_features += [frame_tensor]
-                                            curr_labels += [label]
+                                            if('channels' in db[vid_key][frame_key].keys()):
+                                                # Tensor that represents a frame
+                                                frame_tensor = self._extract_frame(db[vid_key][frame_key]['channels'], db[vid_key][frame_key].attrs['SEGS'])                              
+                                                curr_features += [frame_tensor]
+                                                curr_labels += [label]
                                 print('Features extracted from file {}.'.format(file_path))
                                 if(saving):
                                     try:
@@ -203,6 +252,7 @@ class Preprocessor:
                         else:
                             curr_features = np.array(db['features'], dtype=np.float32)
                             curr_labels = np.array(db['labels'], dtype=np.int32)
+                            feature_counter += len(curr_features)
                             if(len(curr_features) == len(curr_labels)):
                                 if(features is None):
                                     features = curr_features
@@ -217,8 +267,10 @@ class Preprocessor:
                     print(traceback.format_exc())
             else:
                 print('File {} does not exist. Ignored'.format(file_path))
-        
-        return (np.array(features, dtype=np.float32), np.array(labels, dtype=np.float32))
+       
+        features = tf.convert_to_tensor(features, dtype=tf.float32)
+        labels = tf.convert_to_tensor(labels, dtype=tf.int32)
+        return (features, labels)
     
     
     # Takes a video and a list of scalars as input and returns the corresponding

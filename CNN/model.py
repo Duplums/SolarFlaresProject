@@ -90,13 +90,13 @@ class Model:
             ################################
             # FC-1024 [h/32, w/32, 512] --> [h*w/2]
             self.pool5_flat = tf.layers.flatten(self.pool5, name='pool5_flat')
-            self.dense1 = self.fc_layer(self.pool5_flat, int(height*width/2), 1024, 'fc1')
+            self.dense1 = self.fc_layer(self.pool5_flat, int(height*width/2), 256, 'fc1')
             
             # FC-1024 [1024] --> [1024]
-            self.dense2 = self.fc_layer(self.dense1, 1024, 1024, 'fc2')
+            self.dense2 = self.fc_layer(self.dense1, 256, 256, 'fc2')
             
             # FC-32 [1024] --> [32]
-            self.dense3 = self.fc_layer(self.dense2, 1024, 32, 'fc3')
+            self.dense3 = self.fc_layer(self.dense2, 256, 32, 'fc3')
             
             # Results
             self.logits = self.fc_layer(self.dense3, 32, self.nb_classes, 'logits', activation=None, dropout=False)
@@ -172,7 +172,7 @@ class Model:
             return confusion_matrix, update
     
     def compute_acc_per_class(self, confusion_matrix):
-        acc = tf.truediv(tf.diag_part(confusion_matrix), tf.reduce_sum(confusion_matrix, axis=0)) 
+        acc = tf.truediv(tf.diag_part(confusion_matrix), tf.reduce_sum(confusion_matrix, axis=1)) 
         return acc
     
     # Useful for testing phase

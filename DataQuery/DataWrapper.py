@@ -1,5 +1,6 @@
 import re, cv2, math
 import numpy as np
+import traceback
 
 class SF_picture:
     dict_segs = None
@@ -115,6 +116,35 @@ class SF_video:
     def to_dict(self):
         res = {'flare_event':self.flare_event, 'frames': [pic.to_dict() for pic in self.frames], 'frames_size': self.frames_size}
         return res
+
+
+
+    # Display a video from .hdf5 file
+    @staticmethod
+    def display_vid(video):
+        try:
+            frame_keys = list(video.keys())
+            if(len(frame_keys) > 0):
+                height, width, nb_channels = video[frame_keys[0]]['channels'].shape
+                channels = video[frame_keys[0]].attrs['SEGS']
+                if(len(channels) != nb_channels):
+                    print('Channels supposed to be {} but only {} channels found.'.format(channels, nb_channels))
+                    raise
+                for frame_key in frame_keys:
+                    channel_count = 0
+                    for channel in channels:
+                        cv2.namedWindow(channel.decode(), cv2.WINDOW_NORMAL)
+                        cv2.resizeWindow(channel.decode(), height, width)
+                        cv2.imshow(channel.decode(), video[frame_key]['channels'][:,:,channel_count])
+                        channel_count += 1
+                    cv2.waitKey(0)
+                cv2.destroyAllWindows()
+        except:
+            print('Impossible to display the video.')
+            print(traceback.format_exc())
+
+
+
 
 
 #def picture_show(pics, segs = 'Bp,Bp_err,Br,Br_err,Bt,Bt_err,Dopplergram,magnetogram,continuum'):

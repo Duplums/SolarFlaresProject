@@ -150,7 +150,8 @@ def test_model(config, test_data_gen):
             x_train, y_train = test_data_gen.next_batch(False, False)
             # Testing loop 
             it_global = 0
-            while(x_train is not None or y_train is not None):
+            while(x_train is not None or y_train is not None or
+                  len(x_train) == 0 or len(y_train) == 0):
                 # Create a batch of batch_size 
                 data_it = data_gen.Data_Iterator(x_train, y_train, batch_size)
                 it_batch = 0
@@ -169,7 +170,7 @@ def test_model(config, test_data_gen):
                 # computes the metrics
                 metrics = sess.run(metrics)
                 # plot in console the metrics we want and hyperparameters
-                print('-----\nBATCH {} -----\n'.format(it_batch))
+                print('-----\nBATCH {} -----\n'.format(it_global))
                 print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}\nConfusion Matrix : {}\n-----'.format(metrics[0], 
                   metrics[1], metrics[2], metrics[3], metrics[4]))
                 x_train, y_train = test_data_gen.next_batch(False, False)
@@ -184,10 +185,10 @@ def test_model(config, test_data_gen):
 def main_py():
     tf.reset_default_graph()
     data = 'SF' # in {'SF', 'MNIST', 'CIFAR-10'}
-    #train_data_gen = data_gen.Data_Gen(data, utils.config[data]) # Memory size / batch= 4GB
-    #train_model(utils.config[data], train_data_gen)
-    test_data_gen = data_gen.Data_Gen(data, utils.config[data], training=False)
-    test_model(utils.config[data], test_data_gen)
+    train_data_gen = data_gen.Data_Gen(data, utils.config[data]) # Memory size / batch= 4GB
+    train_model(utils.config[data], train_data_gen)
+    #test_data_gen = data_gen.Data_Gen(data, utils.config[data], training=False)
+    #test_model(utils.config[data], test_data_gen)
 
 main_py()
 

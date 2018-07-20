@@ -115,7 +115,7 @@ class Data_Gen:
         self.size_of_files = [s for k, s in enumerate(self.size_of_files) if k not in files_index[:counter]]
         self.paths_to_file = [s for k, s in enumerate(self.paths_to_file) if k not in files_index[:counter]]
         self.preprocessor.set_files(files_in_batch)
-        print('Files given to the preprocessor : {}'.format(os.path.basename(files_in_batch)))
+        print('Files given to the preprocessor : {}'.format(files_in_batch))
         return self.preprocessor.extract_features(save_features, retrieve_features)        
     
     @staticmethod

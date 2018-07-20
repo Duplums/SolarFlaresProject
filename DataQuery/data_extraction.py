@@ -78,7 +78,73 @@ class Data_Downloader:
                     for attrs in self.goes_attrs:
                         writing_row += [row[attrs]]
                     writer.writerow(writing_row)
-
+                    
+    # Aims to check the integrity of the file 'hdf5_file' according to the 
+    # format defined previously. If correct_file is True, then:
+    #   * frames with no channels are erased.
+    #   * frames with unknown shapes are erased
+    #   * if delete_zeros is True, frames that contain channels with only zeros
+    #   * are deleted.
+    @staticmethod
+    def check_integrity(hdf5_file, correct_file = False, delete_zeros = False):
+        try:
+            with h5py.File(hdf5_file, 'r+') as db:
+                print('Analysis of file {} started'.format(hdf5_file))
+                nb_vids = len(list(db.keys()))
+                if(nb_vids == 0):
+                    print('(Warning): 0 video found in the file.')
+                for vid_key in db.keys():
+                    if(re.match('video[1-9]?[0-9]', vid_key) is None):
+                        print('(Warning), video key {} does not match \'video?\'.'.format(vid_key))
+                    nb_frames = len(list(db[vid_key]))
+                    if(nb_frames == 0):
+                        print('(Warning): 0 frame found in {}.'.format(vid_key))
+                    nb_global_segs = None
+                    for frame_key in db[vid_key]:
+                        if(re.match('frame[1-9]?[0-9]', frame_key) is None):
+                            print('(Warning): frame key {} does not match \'frame?\'.'.format(frame_key))
+                        if('SEGS' not in db[vid_key][frame_key].attrs):
+                            print('ERROR: attribute \'SEGS\' is missing in frame {}, video {}'.format(frame_key, vid_key))
+                        else:
+                            nb_local_segs = len(db[vid_key][frame_key].attrs['SEGS'])
+                            if(nb_global_segs is None):
+                                nb_global_segs = nb_local_segs
+                            elif(nb_global_segs != nb_local_segs):
+                                print('WARNING : {} segments found in video {}, frame {} but {} found in the previous frames'.
+                                      format(nb_local_segs, vid_key, frame_key, nb_global_segs))
+                            if('channels' not in db[vid_key][frame_key].keys()):
+                                print('ERROR: \'channels\' not found in video {}, frame {}'.format(vid_key, frame_key))
+                                if(correct_file):
+                                    print('--->The frame is erased from video.')
+                                    del db[vid_key][frame_key]
+                            else:
+                                frame_shape = db[vid_key][frame_key]['channels'].shape
+                                if(len(frame_shape) != 3):
+                                    print('ERROR: Unknown frame shape format : {}'.format(frame_shape))
+                                    if(correct_file):
+                                        print('--->The frame is erased from video.')
+                                        del db[vid_key][frame_key]
+                                else:
+                                    if(frame_shape[2] != nb_local_segs):
+                                        print('WARNING: {} segments found in frame attribute but {} channels found in the data'.format(nb_local_segs, frame_shape[2]))
+                                    for k in range(frame_shape[2]):
+                                        if(np.any(np.isnan(db[vid_key][frame_key]['channels'][:,:,k]))):
+                                            print('(Warning) \'NaN\' found in video {}, frame {}, channel {}'.format(vid_key, frame_key, k))
+                                        if(np.all(db[vid_key][frame_key]['channels'][:,:,k])):
+                                            print('(Info) video {}, frame {}, channel {} contains only zeros'.format(vid_key, frame_key, k))
+                                            if(delete_zeros):
+                                                if(correct_file):
+                                                    print('--->The frame is erased from video.')
+                                                    del db[vid_key][frame_key]
+                                                break
+                print('Analysis finished with code error 0.')
+        except:
+            print('Error while scanning the file.')
+            print(traceback.format_exc())
+        
+        
+        
+        
     @staticmethod
     def _check_essential_attributes(attrs_set, essential_attrs):
         if(not essential_attrs.issubset(attrs_set)):
@@ -286,11 +352,11 @@ ar_attrs = utils.config['SF']['ar_attrs']
 ar_segs = utils.config['SF']['segs']
 
 downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
-downloader.download_jsoc_data(files_core_name = 'jsoc_data',
-                           directory = 'train/B-class-flares',
-                           goes_data_path =goes_data_path, 
-                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
-                           start_time = '2011-04-04',
-                           hours_before_event = 24, sample_time = '@1h',
-                           limit = 700)
+#downloader.download_jsoc_data(files_core_name = 'jsoc_data',
+#                           directory = 'train/B-class-flares',
+#                           goes_data_path =goes_data_path, 
+#                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
+#                           start_time = '2011-04-04',
+#                           hours_before_event = 24, sample_time = '@1h',
+#                           limit = 700)
 
