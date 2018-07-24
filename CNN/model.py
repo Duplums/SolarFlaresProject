@@ -36,7 +36,7 @@ class Model:
             self.conv1_2 = self.conv_layer(self.conv1_1, [3, 3, 64, 64], 'conv1_2')
             
             # MAX POOLING [h, w, 64] --> [h/2, w/2, 64]
-            self.pool1 = tf.layers.max_pooling2d(inputs=self.conv1_2, name='pool1', pool_size=2, strides=2)
+            self.pool1 = tf.layers.max_pooling2d(inputs=self.conv1_2, name='pool1', pool_size=2, strides=2, padding='same')
             
             ################################
             # CONV3-128 [h/2, w/2, 64] --> [h/2, w/2, 128]
@@ -46,7 +46,7 @@ class Model:
             self.conv2_2 = self.conv_layer(self.conv2_1, [3, 3, 128, 128], 'conv2_2')
      
             # MAX POOLING [h/2, w/2, 128] --> [h/4, w/4, 128]
-            self.pool2 = tf.layers.max_pooling2d(inputs=self.conv2_2, name='pool2', pool_size=2, strides=2)
+            self.pool2 = tf.layers.max_pooling2d(inputs=self.conv2_2, name='pool2', pool_size=2, strides=2, padding='same')
             
             ################################
             # CONV3-256 [h/4, w/4, 128] --> [h/4, w/4, 256]
@@ -59,24 +59,24 @@ class Model:
             self.conv3_3 = self.conv_layer(self.conv3_2, [3, 3, 256, 256], 'conv3_3')
 
             # MAX POOLING [h/4, w/4, 256] --> [h/8, w/8, 256]
-            self.pool3 = tf.layers.max_pooling2d(inputs=self.conv3_3, name='pool3', pool_size=2, strides=2)
+            self.pool3 = tf.layers.max_pooling2d(inputs=self.conv3_3, name='pool3', pool_size=2, strides=2, padding='same')
             
             ################################
-            # CONV3-512 [h/8, w/8, 256] --> [h/8, w/8, 512]
-            self.conv4_1 = self.conv_layer(self.pool3, [3, 3, 256, 512], 'conv4_1')
+            # CONV3-256 [h/8, w/8, 256] --> [h/8, w/8, 256]
+            self.conv4_1 = self.conv_layer(self.pool3, [3, 3, 256, 256], 'conv4_1')
             
-            # CONV3-512 [h/8, w/8, 512] --> [h/8, w/8, 512]
-            self.conv4_2 = self.conv_layer(self.conv4_1, [3, 3, 512, 512], 'conv4_2')
+            # CONV3-256 [h/8, w/8, 256] --> [h/8, w/8, 256]
+            self.conv4_2 = self.conv_layer(self.conv4_1, [3, 3, 256, 256], 'conv4_2')
             
-            # CONV3-512 [h/8, w/8, 512] --> [h/8, w/8, 512]
-            self.conv4_3 = self.conv_layer(self.conv4_2, [3, 3, 512, 512], 'conv4_3')
+            # CONV3-256 [h/8, w/8, 256]--> [h/8, w/8, 256]
+            self.conv4_3 = self.conv_layer(self.conv4_2, [3, 3, 256, 256], 'conv4_3')
 
-            # MAX POOLING [h/8, w/8, 512] --> [h/16, w/16, 512]
-            self.pool4 = tf.layers.max_pooling2d(inputs=self.conv4_3, name='pool4', pool_size=2, strides=2)
+            # MAX POOLING [h/8, w/8, 256] --> [h/16, w/16, 256]
+            self.pool4 = tf.layers.max_pooling2d(inputs=self.conv4_3, name='pool4', pool_size=2, strides=2, padding='same')
             
             ################################
-             # CONV3-512 [h/16, w/16, 512] --> [h/16, w/16, 512]
-            self.conv5_1 = self.conv_layer(self.pool4, [3, 3, 512, 512], 'conv5_1')
+            # CONV3-512 [h/16, w/16, 256] --> [h/16, w/16, 512]
+            self.conv5_1 = self.conv_layer(self.pool4, [3, 3, 256, 512], 'conv5_1')
             
             # CONV3-512 [h/16, w/16, 512] --> [h/16, w/16, 512]
             self.conv5_2 = self.conv_layer(self.conv5_1, [3, 3, 512, 512], 'conv5_2')
@@ -85,18 +85,21 @@ class Model:
             self.conv5_3 = self.conv_layer(self.conv5_2, [3, 3, 512, 512], 'conv5_3')
 
             # MAX POOLING [h/16, w/16, 512] --> [h/32, w/32, 512]
-            self.pool5 = tf.layers.max_pooling2d(inputs=self.conv5_3, name='pool5', pool_size=2, strides=2)
+            self.pool5 = tf.layers.max_pooling2d(inputs=self.conv5_3, name='pool5', pool_size=2, strides=2, padding='same')
             
             ################################
-            # FC-1024 [h/32, w/32, 512] --> [h*w/2]
-            self.pool5_flat = tf.layers.flatten(self.pool5, name='pool5_flat')
-            self.dense1 = self.fc_layer(self.pool5_flat, int(height*width/2), 256, 'fc1')
+            # SPATIAL PYRAMID POOLING [h/32, w/32, 512] --> [(4*4+2*2+1*1)*512]=[10752] for levels = [4, 2, 1]
+            self.spp = self.spp_layer(self.pool5, [4, 2, 1], 'spp')
+            
+            ################################
+            # FC-1024 [10752] --> [1024]
+            self.dense1 = self.fc_layer(self.spp, 10752, 1024, 'fc1')
             
             # FC-1024 [1024] --> [1024]
-            self.dense2 = self.fc_layer(self.dense1, 256, 256, 'fc2')
+            self.dense2 = self.fc_layer(self.dense1, 1024, 1024, 'fc2')
             
             # FC-32 [1024] --> [32]
-            self.dense3 = self.fc_layer(self.dense2, 256, 32, 'fc3')
+            self.dense3 = self.fc_layer(self.dense2, 1024, 32, 'fc3')
             
             # Results
             self.logits = self.fc_layer(self.dense3, 32, self.nb_classes, 'logits', activation=None, dropout=False)
@@ -125,6 +128,27 @@ class Model:
             self.vector_summary(self.accuracy_per_class, 'Accuracy_Per_Class')
             #self.prob_summary(nb_pics)
     
+    
+    def spp_layer(self, input_, levels=[4, 2, 1], name='spp_layer', pooling='AVG'): # pooling in {'AVG', 'MAX'}
+        shape = tf.cast(tf.shape(input_), tf.float32)
+        with tf.variable_scope(name):
+            pool_outputs = []
+            for l in levels:
+                # Compute the pooling manually by slicing the input tensor
+                pool_size = tf.cast([tf.ceil(tf.div(shape[1],l)), tf.ceil(tf.div(shape[2], l))], tf.int64)
+                strides= tf.cast([tf.floordiv(shape[1], l), tf.floordiv(shape[2], l)], tf.int64)
+                 
+                for i in range(l):
+                    for j in range(l):
+                        # bin (i,j)
+                        tensor_slice = input_[:, i*strides[0]:i*strides[0]+pool_size[0], j*strides[1]:j*strides[1]+pool_size[1],:]
+                        if(pooling == 'AVG'):
+                            pool_outputs.append(tf.reduce_mean(tensor_slice, axis=[1, 2]))
+                        else:
+                            pool_outputs.append(tf.reduce_max(tensor_slice, axis=[1,2]))
+            
+            spp = tf.concat(pool_outputs, 1)
+            return spp
 
     def conv_layer(self, input_, filter_shape, name, padding='SAME', activation='relu', strides=[1,1,1,1]):
         with tf.variable_scope(name):

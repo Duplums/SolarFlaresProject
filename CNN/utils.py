@@ -1,7 +1,7 @@
 
             # CONFIG FOR SOLAR FLARES DATA
-config = { 'SF': {'data_dims': [2880, 2592, 3], # MAX DIM on 7/20 : [2860, 2587]
-                  'batch_memsize': 2*1024, # 4GB / batch
+config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587] 
+                  'batch_memsize': 2*1024, # 4GB / global batch
                   'checkpoint': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Checkpoints/SF',
                   'tensorboard': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Tensorboard/logs_SF',
                   'features_dir' : '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
@@ -9,17 +9,16 @@ config = { 'SF': {'data_dims': [2880, 2592, 3], # MAX DIM on 7/20 : [2860, 2587]
                   'tolerance': 0.001,
                   'batch_norm': True,
                   'nb_classes': 2,
-                  'batch_size': 16, # nb pictures / batch
-                  'num_epochs': 100, # nb batchs considered 
-                  'num_steps': 10, # nb step / batch (4GB)
-                  'checkpoint_iter': 40, # save every 'checkpoint_iter' global iteration
+                  'batch_size': 16, # nb pictures / local batch
+                  'num_epochs': 100, # nb global batchs considered 
+                  'checkpoint_iter': 50, # save every 'checkpoint_iter' global iteration
                   'ar_attrs' : ['T_REC', 'NOAA_AR', 'HARPNUM', 'LAT_FWT', 'LON_FWT',
                                 'SIZE', 'SIZE_ACR', 'NACR', 'NPIX', 'LAT_MIN', 'LAT_MAX',
                                 'LON_MIN', 'LON_MAX'],
                   'segs': ['Bp', 'Br', 'Bt'],
                   'goes_attrs' : ['event_class', 'noaa_active_region', 'event_date', 'start_time', 'end_time', 'peak_time'],
-                  'subsampling' : 2,
-                  'resize_method': 'ZERO_PADDING',
+                  'subsampling' : 5,
+                  'resize_method': 'NONE',
                   'time_step': 60, # time step used in each video
                   'training_paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/train/B-class-flares', 
                                      '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/train/M-X-class-flares'],
@@ -37,7 +36,6 @@ config = { 'SF': {'data_dims': [2880, 2592, 3], # MAX DIM on 7/20 : [2860, 2587]
                       'nb_classes': 10,
                       'batch_size': 256, # nb pictures / batch
                       'num_epochs': 1, # nb batchs considered 
-                      'num_steps': 500, # nb step / batch (4GB)
                       'checkpoint_iter': 500, # save every 500 global iteration
                       'segs': ['digit'],
                       'training_paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/MNIST-HDF5/train'],
@@ -55,7 +53,6 @@ config = { 'SF': {'data_dims': [2880, 2592, 3], # MAX DIM on 7/20 : [2860, 2587]
                       'nb_classes': 10,
                       'batch_size': 256, # nb pictures / batch
                       'num_epochs': 1, # nb batchs considered 
-                      'num_steps': 500, # nb step / batch (4GB)
                       'checkpoint_iter': 500, # save every 500 global iteration
                       'segs': ['R', 'G', 'B'],
                       'training_paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/CIFAR10-HDF5/train'],

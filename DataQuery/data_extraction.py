@@ -4,7 +4,6 @@ import sunpy.instr.goes as goes_db
 from datetime import timedelta
 import drms, h5py
 import os, csv, traceback, re
-import sys 
 from CNN import utils
 import numpy as np
 

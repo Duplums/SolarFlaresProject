@@ -27,7 +27,9 @@ def restore_checkpoint(session, saver, save_dir):
         return False
 
 
-def train_model(config, train_data_gen):
+def train_model(data):
+    
+    config = utils.config[data]
     checkpoint_dir = config['checkpoint']
     tensorboard_dir= config['tensorboard']
     learning_rate = config['learning_rate'] # initial learning rate
@@ -36,20 +38,26 @@ def train_model(config, train_data_gen):
     nb_classes = config['nb_classes']
     batch_size = config['batch_size']
     num_epochs = config['num_epochs']
-    num_steps_per_epoch = config['num_steps']
     checkpoint_iter = config['checkpoint_iter']
     # Training graph
     G = tf.Graph()
+    train_data_gen = data_gen.Data_Gen(data, config, G, max_pic_size=[3000,3000])
+    
     with G.as_default(), tf.device('/cpu:0'):
-        input_data = tf.placeholder(dtype=tf.float32,\
-                              shape=[batch_size] + train_data_gen.data_dims,\
-                              name='data')
-        input_labels = tf.placeholder(dtype=tf.int32,\
-                                shape=[batch_size],\
-                                name='labels')
-        dyn_learning_rate = tf.placeholder(dtype=tf.float32,\
-                                    shape=[],\
-                                    name='learning_rate')
+        
+        dyn_learning_rate = tf.placeholder(dtype=tf.float32,
+                                           shape=[],
+                                           name='learning_rate')
+        
+        input_data = tf.placeholder(dtype=tf.float32,
+                                    shape=[None]+config['data_dims'],
+                                    name='data')
+        input_labels = tf.placeholder(dtype=tf.int32,
+                                      shape=[None],
+                                      name='labels')
+        it_global = tf.Variable(tf.constant(0, shape=[], dtype=tf.int32), trainable=False)
+
+        update_it_global = tf.assign_add(it_global, batch_size) 
         training_model = model.Model('VGG_16', nb_classes, batch_norm=batch_norm)
         training_model.build_vgg16_like(input_data, input_labels)
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -71,48 +79,50 @@ def train_model(config, train_data_gen):
     sess.run(local_init)
     start = time.time()
     with sess.as_default():
-        restore_checkpoint(sess, saver, checkpoint_dir)
+        #restore_checkpoint(sess, saver, checkpoint_dir)
         train_writer = tf.summary.FileWriter(tensorboard_dir+'/train', sess.graph)
         # training loop 
-        it_global = 0
         old_loss = math.inf
         for epochs in range(num_epochs):
             # re-init the learning rate at the beginning of each epoch
             learning_rate = config['learning_rate']
-            # Loads in memory the data and saves/retrieves the features.
-            x_train, y_train = train_data_gen.next_batch(False, True, True)
-            # If we do not have data anymore, exit.
-            if(x_train is None or y_train is None):
-                break
-            # Create a batch of batch_size 
-            for step in range(num_steps_per_epoch):
-                input_data_batch, input_labels_batch = data_gen.Data_Gen.get_random_batch(x_train, y_train, batch_size)
-                inputs = {input_data : input_data_batch, input_labels : input_labels_batch, dyn_learning_rate : learning_rate}
-                ops = [merged, grad_step, training_model.loss, training_model.prob, training_model.accuracy_up,
-                       training_model.precision_up, training_model.recall_up, training_model.confusion_matrix_up, 
-                       training_model.pred]
-                metrics = [training_model.accuracy, training_model.precision, training_model.recall, training_model.confusion_matrix,
-                           training_model.accuracy_per_class]
+            # Load the next batch of data in memory
+            features, labels = train_data_gen.gen_batch_dataset(True, True)
+            # Create the TF input pipeline and preprocess the data
+            train_data_gen.create_tf_dataset_and_preprocessing(features, labels)
+            # Get the first local batch 
+            x_train, y_train = sess.run(train_data_gen.get_next_batch())
+            # Computes every ops in each step            
+            ops = [merged, grad_step, training_model.loss, training_model.prob, training_model.accuracy_up,
+                   training_model.precision_up, training_model.recall_up, training_model.confusion_matrix_up, 
+                   training_model.pred, update_it_global, it_global]
+            metrics = [training_model.accuracy, training_model.precision, training_model.recall, training_model.confusion_matrix,
+                       training_model.accuracy_per_class]
+            step = 0
+            while x_train is not None and y_train is not None:
+                inputs = {dyn_learning_rate : learning_rate,
+                          input_data : x_train,
+                          input_labels: y_train}
                 # runs the optimization and updates the metrics
                 results = sess.run(ops, feed_dict=inputs)
                 # computes the metrics
                 metrics = sess.run(metrics)
-                it_global += 1
                 # updates the learning rate and the old_loss
                 if(abs(results[2] - old_loss) < epsilon):
                     learning_rate /= 2
                 old_loss = results[2]
                 # plot the variables in TensorBoard
-                train_writer.add_summary(results[0], global_step=it_global)
+                train_writer.add_summary(results[0], global_step=results[10])
                 # plot in console the metrics we want and hyperparameters
-                print('Epoch {}, it {}, accuracy : {}, loss : {}, learning_rate : {}'.format(epochs, step, 
+                print('Epoch {}, step {}, accuracy : {}, loss : {}, learning_rate : {}'.format(epochs, step,
                       metrics[0], results[2], learning_rate))
+                step += 1
+                x_train, y_train = sess.run(train_data_gen.get_next_batch())
                 # save the weigths
-                if(it_global % checkpoint_iter == 0 or (step == num_steps_per_epoch-1 and epochs == num_epochs-1)):
+                if(results[10] % checkpoint_iter == 0 or (epochs == num_epochs-1 and x_train is None)):
                     saver.save(sess, os.path.join(checkpoint_dir,'training_vgg16.ckpt'), it_global)
                     print('Checkpoint saved')
-            sess.run(training_model.reset_metrics())
-            
+                
     end = time.time()
     print("Time usage: " + str(timedelta(seconds=int(round(end-start)))))
     return training_model
@@ -185,8 +195,7 @@ def test_model(config, test_data_gen):
 def main_py():
     tf.reset_default_graph()
     data = 'SF' # in {'SF', 'MNIST', 'CIFAR-10'}
-    train_data_gen = data_gen.Data_Gen(data, utils.config[data]) # Memory size / batch= 4GB
-    train_model(utils.config[data], train_data_gen)
+    train_model(data)
     #test_data_gen = data_gen.Data_Gen(data, utils.config[data], training=False)
     #test_model(utils.config[data], test_data_gen)
 
