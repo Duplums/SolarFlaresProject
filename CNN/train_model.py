@@ -2,6 +2,7 @@ import tensorflow as tf
 import time, os, math, traceback
 from datetime import timedelta
 import model, utils, data_gen
+import numpy as np
 
 # config: dict containing every info for training mode
 # train_data_gen: load in RAM the data when needed
@@ -36,14 +37,13 @@ def train_model(data):
     epsilon = config['tolerance'] # useful for updating learning rate
     batch_norm = config['batch_norm']
     nb_classes = config['nb_classes']
-    batch_size = config['batch_size']
     num_epochs = config['num_epochs']
     checkpoint_iter = config['checkpoint_iter']
     # Training graph
     G = tf.Graph()
     train_data_gen = data_gen.Data_Gen(data, config, G, max_pic_size=[3000,3000])
     
-    with G.as_default(), tf.device('/cpu:0'):
+    with G.as_default():
         
         dyn_learning_rate = tf.placeholder(dtype=tf.float32,
                                            shape=[],
@@ -57,7 +57,7 @@ def train_model(data):
                                       name='labels')
         it_global = tf.Variable(tf.constant(0, shape=[], dtype=tf.int32), trainable=False)
 
-        update_it_global = tf.assign_add(it_global, batch_size) 
+        update_it_global = tf.assign_add(it_global, tf.shape(input_data)[0]) 
         training_model = model.Model('VGG_16', nb_classes, batch_norm=batch_norm)
         training_model.build_vgg16_like(input_data, input_labels)
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -81,6 +81,7 @@ def train_model(data):
     with sess.as_default():
         #restore_checkpoint(sess, saver, checkpoint_dir)
         train_writer = tf.summary.FileWriter(tensorboard_dir+'/train', sess.graph)
+        profiler = tf.profiler.Profiler(sess.graph)
         # training loop 
         old_loss = math.inf
         for epochs in range(num_epochs):
@@ -99,12 +100,28 @@ def train_model(data):
             metrics = [training_model.accuracy, training_model.precision, training_model.recall, training_model.confusion_matrix,
                        training_model.accuracy_per_class]
             step = 0
+            
             while x_train is not None and y_train is not None:
                 inputs = {dyn_learning_rate : learning_rate,
                           input_data : x_train,
                           input_labels: y_train}
+                run_meta = tf.RunMetadata()
                 # runs the optimization and updates the metrics
-                results = sess.run(ops, feed_dict=inputs)
+                results = sess.run(ops, feed_dict=inputs, 
+                                   options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
+                                   run_metadata=run_meta)
+                profiler.add_step(step, run_meta)
+                
+                option_builder = tf.profiler.ProfileOptionBuilder
+                
+                opts = (option_builder(option_builder.time_and_memory()).
+                    with_step(-1). # with -1, should compute the average of all registered steps.
+                    with_file_output('test.txt').
+                    select(['micros','bytes','occurrence']).order_by('bytes').
+                    build())
+                # Profiling infos about ops are saved in 'test-%s.txt' % FLAGS.out
+                profiler.profile_operations(options=opts)
+
                 # computes the metrics
                 metrics = sess.run(metrics)
                 # updates the learning rate and the old_loss

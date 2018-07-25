@@ -137,7 +137,6 @@ class Model:
                 # Compute the pooling manually by slicing the input tensor
                 pool_size = tf.cast([tf.ceil(tf.div(shape[1],l)), tf.ceil(tf.div(shape[2], l))], tf.int64)
                 strides= tf.cast([tf.floordiv(shape[1], l), tf.floordiv(shape[2], l)], tf.int64)
-                 
                 for i in range(l):
                     for j in range(l):
                         # bin (i,j)

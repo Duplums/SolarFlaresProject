@@ -424,12 +424,12 @@ class Data_Gen:
             self.dataset = tf.data.Dataset.from_generator(lambda: self.generator(features, labels),
                                                       output_types = (tf.float32, tf.int32),
                                                       output_shapes = (tf.TensorShape([None, None, self.data_dims[2]]),
-                                                                       tf.TensorShape([None])))
+                                                                       tf.TensorShape([])))
             print('Data preprocessing...')
             self.data_preprocessing()
             print('Grouping pictures by size...')
             self.dataset = self.dataset.apply(tf.contrib.data.group_by_window(lambda pic, label : self._get_key_from_tensor(pic),
-                                                                              lambda tensors : self._shuffle_per_batch(tensors),
+                                                                              lambda key, tensors : self._shuffle_per_batch(tensors),
                                                                               window_size=self.batch_size))
             self.data_iterator = self.dataset.make_one_shot_iterator()
             print('New TF Dataset created.')
