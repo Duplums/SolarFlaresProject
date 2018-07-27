@@ -25,7 +25,7 @@ class Model:
         # data must have size nb_pictures x height x width x nb_channels
         assert type(data) is tf.Tensor and len(data.shape) == 4
         assert type(labels) is tf.Tensor
-        with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
+        with tf.variable_scope(self.name):
             (nb_pics, height, width, nb_channels) = data.get_shape().as_list()
             
             self.input_layer = tf.cast(data, dtype=tf.float32)            
@@ -135,8 +135,8 @@ class Model:
             pool_outputs = []
             for l in levels:
                 # Compute the pooling manually by slicing the input tensor
-                pool_size = tf.cast([tf.ceil(tf.div(shape[1],l)), tf.ceil(tf.div(shape[2], l))], tf.int64)
-                strides= tf.cast([tf.floordiv(shape[1], l), tf.floordiv(shape[2], l)], tf.int64)
+                pool_size = tf.cast([tf.ceil(tf.div(shape[1],l)), tf.ceil(tf.div(shape[2], l))], tf.int32)
+                strides= tf.cast([tf.floordiv(shape[1], l), tf.floordiv(shape[2], l)], tf.int32)
                 for i in range(l):
                     for j in range(l):
                         # bin (i,j)
@@ -189,7 +189,7 @@ class Model:
             return fc
     
     def update_confusion_matrix(self, labels, pred, name):
-        with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+        with tf.variable_scope(name):
             confusion_matrix= tf.get_variable('matrix', initializer=tf.zeros(shape=[self.nb_classes, self.nb_classes], dtype=tf.int32), trainable=False)
             update = tf.assign_add(confusion_matrix, tf.confusion_matrix(labels, pred, self.nb_classes), name='update')
             return confusion_matrix, update
@@ -200,7 +200,7 @@ class Model:
     
     # Useful for testing phase
     def reset_metrics(self):
-        with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
+        with tf.variable_scope(self.name):
             reset =  [tf.variables_initializer([self.confusion_matrix])]
             return(reset)
     
@@ -212,7 +212,7 @@ class Model:
                 
     def weights_summary(self, var, name):
         with tf.variable_scope(name):
-            var_flatten = tf.layers.flatten(var)
+            var_flatten = tf.reshape(var, [-1])
             mean = tf.reduce_mean(var_flatten)
             stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
             tf.summary.scalar('mean', mean)

@@ -2,7 +2,7 @@ from astropy.io import fits
 from sunpy.time import TimeRange
 import sunpy.instr.goes as goes_db
 from datetime import timedelta
-import drms, h5py
+import drms, h5py, cv2
 import os, csv, traceback, re
 from CNN import utils
 import numpy as np
@@ -27,7 +27,7 @@ import numpy as np
                     # dtype = int32
                     # shape = (100, 200, 3)
             ...
-            /frameN
+            /frameM
                 
         /video2
         ...
@@ -78,6 +78,33 @@ class Data_Downloader:
                         writing_row += [row[attrs]]
                     writer.writerow(writing_row)
                     
+    
+    # Display a video from .hdf5 file
+    @staticmethod
+    def display_vid(file, vid):
+        try:
+            with h5py.File(file, 'r') as db:
+                video = db[vid]
+                frame_keys = list(video.keys())
+                if(len(frame_keys) > 0):
+                    height, width, nb_channels = video[frame_keys[0]]['channels'].shape
+                    channels = video[frame_keys[0]].attrs['SEGS']
+                    if(len(channels) != nb_channels):
+                        print('Channels supposed to be {} but only {} channels found.'.format(channels, nb_channels))
+                        raise
+                    for frame_key in frame_keys:
+                        channel_count = 0
+                        for channel in channels:
+                            cv2.namedWindow(channel.decode(), cv2.WINDOW_NORMAL)
+                            cv2.resizeWindow(channel.decode(), height, width)
+                            cv2.imshow(channel.decode(), video[frame_key]['channels'][:,:,channel_count])
+                            channel_count += 1
+                        cv2.waitKey(0)
+                    cv2.destroyAllWindows()
+        except:
+            print('Impossible to display the video.')
+            print(traceback.format_exc())
+                    
     # Aims to check the integrity of the file 'hdf5_file' according to the 
     # format defined previously. If correct_file is True, then:
     #   * frames with no channels are erased.
@@ -92,10 +119,18 @@ class Data_Downloader:
                 nb_vids = len(list(db.keys()))
                 if(nb_vids == 0):
                     print('(Warning): 0 video found in the file.')
+                report = {}
                 for vid_key in db.keys():
                     if(re.match('video[1-9]?[0-9]', vid_key) is None):
                         print('(Warning), video key {} does not match \'video?\'.'.format(vid_key))
                     nb_frames = len(list(db[vid_key]))
+                    report.update({vid_key : {}})
+                    report[vid_key]['nb_frames'] = nb_frames
+                    report[vid_key]['missing_segs'] = []
+                    report[vid_key]['incomp_segs'] = []
+                    report[vid_key]['no_data'] = []
+                    report[vid_key]['NaN'] = []
+                    report[vid_key]['zeros'] = []
                     if(nb_frames == 0):
                         print('(Warning): 0 frame found in {}.'.format(vid_key))
                     nb_global_segs = None
@@ -104,6 +139,7 @@ class Data_Downloader:
                             print('(Warning): frame key {} does not match \'frame?\'.'.format(frame_key))
                         if('SEGS' not in db[vid_key][frame_key].attrs):
                             print('ERROR: attribute \'SEGS\' is missing in frame {}, video {}'.format(frame_key, vid_key))
+                            report[vid_key]['missing_segs'] += [frame_key]
                         else:
                             nb_local_segs = len(db[vid_key][frame_key].attrs['SEGS'])
                             if(nb_global_segs is None):
@@ -111,8 +147,10 @@ class Data_Downloader:
                             elif(nb_global_segs != nb_local_segs):
                                 print('WARNING : {} segments found in video {}, frame {} but {} found in the previous frames'.
                                       format(nb_local_segs, vid_key, frame_key, nb_global_segs))
+                                report[vid_key]['incomp_segs'] += [frame_key]
                             if('channels' not in db[vid_key][frame_key].keys()):
                                 print('ERROR: \'channels\' not found in video {}, frame {}'.format(vid_key, frame_key))
+                                report[vid_key]['no_data'] += [frame_key]
                                 if(correct_file):
                                     print('--->The frame is erased from video.')
                                     del db[vid_key][frame_key]
@@ -129,14 +167,28 @@ class Data_Downloader:
                                     for k in range(frame_shape[2]):
                                         if(np.any(np.isnan(db[vid_key][frame_key]['channels'][:,:,k]))):
                                             print('(Warning) \'NaN\' found in video {}, frame {}, channel {}'.format(vid_key, frame_key, k))
-                                        if(np.all(db[vid_key][frame_key]['channels'][:,:,k])):
+                                            if(frame_key not in report[vid_key]['NaN']):
+                                                report[vid_key]['NaN'] += [frame_key]
+                                        if(np.all(db[vid_key][frame_key]['channels'][:,:,k] == 0)):
                                             print('(Info) video {}, frame {}, channel {} contains only zeros'.format(vid_key, frame_key, k))
+                                            if(frame_key not in report[vid_key]['zeros']):
+                                                report[vid_key]['zeros'] += [frame_key]
                                             if(delete_zeros):
                                                 if(correct_file):
                                                     print('--->The frame is erased from video.')
                                                     del db[vid_key][frame_key]
                                                 break
                 print('Analysis finished with code error 0.')
+                print('\n---------FINAL REPORT---------\n')
+                for vid_key in db.keys():
+                    print('\t\'{}\':\n'.format(vid_key))
+                    print('\t\t - {} frames found'.format(report[vid_key]['nb_frames']))
+                    print('\t\t - \'SEGS\' attribute missing in frames {}'.format(report[vid_key]['missing_segs']))
+                    print('\t\t - incompatible segments between frames {}'.format(report[vid_key]['incomp_segs']))
+                    print('\t\t - no data in frames {}'.format(report[vid_key]['no_data']))
+                    print('\t\t - \'NaN\' found in frames {}'.format(report[vid_key]['NaN']))
+                    print('\t\t - zeros found in frames {}'.format(report[vid_key]['zeros']))
+                
         except:
             print('Error while scanning the file.')
             print(traceback.format_exc())
@@ -252,7 +304,7 @@ class Data_Downloader:
             reader = csv.reader(file, delimiter=',')
             client = drms.Client()
             mem = 0 # Set a counter for the current cache memory (in bytes) used by videos
-            part_counter = 40
+            part_counter = 54
             vid_counter = 0
             counter = 0
             current_save_file = h5py.File('{}_part_{}.hdf5'.format(files_core_name, part_counter), 'w') 
@@ -351,11 +403,11 @@ ar_attrs = utils.config['SF']['ar_attrs']
 ar_segs = utils.config['SF']['segs']
 
 downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
-#downloader.download_jsoc_data(files_core_name = 'jsoc_data',
-#                           directory = 'train/B-class-flares',
-#                           goes_data_path =goes_data_path, 
-#                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
-#                           start_time = '2011-04-04',
-#                           hours_before_event = 24, sample_time = '@1h',
-#                           limit = 700)
+downloader.download_jsoc_data(files_core_name = 'B_train_jsoc_data',
+                           directory = 'train/B-class-flares',
+                           goes_data_path =goes_data_path, 
+                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
+                           start_time = '2016-06-11',
+                           hours_before_event = 72, sample_time = '@1h',
+                           limit = 1000)
 

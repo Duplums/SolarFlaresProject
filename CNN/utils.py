@@ -1,7 +1,7 @@
 
             # CONFIG FOR SOLAR FLARES DATA
 config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587] 
-                  'batch_memsize': 1024, # 4GB / global batch
+                  'batch_memsize': 2048, # 4GB / global batch
                   'checkpoint': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Checkpoints/SF',
                   'tensorboard': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Tensorboard/logs_SF',
                   'features_dir' : '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
@@ -9,7 +9,7 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                   'tolerance': 0.001,
                   'batch_norm': True,
                   'nb_classes': 2,
-                  'batch_size': 16, # nb pictures / local batch
+                  'batch_size': 2, # nb pictures / local batch
                   'num_epochs': 100, # nb global batchs considered 
                   'checkpoint_iter': 50, # save every 'checkpoint_iter' global iteration
                   'ar_attrs' : ['T_REC', 'NOAA_AR', 'HARPNUM', 'LAT_FWT', 'LON_FWT',
