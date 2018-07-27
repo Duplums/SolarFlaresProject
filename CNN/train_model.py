@@ -56,7 +56,6 @@ def train_model(data):
                                       shape=[None],
                                       name='labels')
         it_global = tf.Variable(tf.constant(0, shape=[], dtype=tf.int32), trainable=False)
-
         update_it_global = tf.assign_add(it_global, tf.shape(input_data)[0]) 
         training_model = model.Model('VGG_16', nb_classes, batch_norm=batch_norm)
         training_model.build_vgg16_like(input_data, input_labels)
@@ -88,7 +87,7 @@ def train_model(data):
             # re-init the learning rate at the beginning of each epoch
             learning_rate = config['learning_rate']
             # Load the next batch of data in memory
-            features, labels = train_data_gen.gen_batch_dataset(True, True)
+            features, labels = train_data_gen.gen_batch_dataset(True, True, True)
             # Create the TF input pipeline and preprocess the data
             train_data_gen.create_tf_dataset_and_preprocessing(features, labels)
             # Get the first local batch 
@@ -112,18 +111,17 @@ def train_model(data):
                                    run_metadata=run_meta)
                 profiler.add_step(step, run_meta)
                 
-                option_builder = tf.profiler.ProfileOptionBuilder
-                
-                opts = (option_builder(option_builder.time_and_memory()).
-                    with_step(-1). # with -1, should compute the average of all registered steps.
-                    with_file_output('test.txt').
-                    select(['micros','bytes','occurrence']).order_by('bytes').
-                    build())
-                # Profiling infos about ops are saved in 'test-%s.txt' % FLAGS.out
-                profiler.profile_operations(options=opts)
-
+#                option_builder = tf.profiler.ProfileOptionBuilder
+#                
+#                opts = (option_builder(option_builder.time_and_memory()).
+#                    with_step(-1). # with -1, should compute the average of all registered steps.
+#                    with_file_output('test.txt').
+#                    select(['micros','bytes','occurrence']).order_by('bytes').
+#                    build())
+#                # Profiling infos about ops are saved in 'test-%s.txt' % FLAGS.out
+#                profiler.profile_operations(options=opts)
                 # computes the metrics
-                metrics = sess.run(metrics)
+                metrics_ = sess.run(metrics)
                 # updates the learning rate and the old_loss
                 if(abs(results[2] - old_loss) < epsilon):
                     learning_rate /= 2
@@ -132,7 +130,7 @@ def train_model(data):
                 train_writer.add_summary(results[0], global_step=results[10])
                 # plot in console the metrics we want and hyperparameters
                 print('Epoch {}, step {}, accuracy : {}, loss : {}, learning_rate : {}'.format(epochs, step,
-                      metrics[0], results[2], learning_rate))
+                      metrics_[0], results[2], learning_rate))
                 step += 1
                 x_train, y_train = sess.run(train_data_gen.get_next_batch())
                 # save the weigths
@@ -145,12 +143,14 @@ def train_model(data):
     return training_model
 
 # Test the model created during the training phase. 
-def test_model(config, test_data_gen):
+def test_model(data):
+    config = utils.config[data]
     checkpoint_dir = config['checkpoint']
     nb_classes = config['nb_classes']
-    batch_size = config['batch_size']
     # Testing graph
     G = tf.Graph()
+    test_data_gen = data_gen.Data_Gen(data, config, G, training=False,
+                                      max_pic_size=[3000,3000])
     with G.as_default(), tf.device('/cpu:0'):
         input_data = tf.placeholder(dtype=tf.float32,\
                               shape=[None] + test_data_gen.data_dims,\
@@ -158,7 +158,8 @@ def test_model(config, test_data_gen):
         input_labels = tf.placeholder(dtype=tf.int32,\
                                 shape=[None],\
                                 name='labels')
-
+        it_global = tf.Variable(tf.constant(0, shape=[], dtype=tf.int32), trainable=False)
+        update_it_global = tf.assign_add(it_global, tf.shape(input_data)[0]) 
         testing_model = model.Model('VGG_16', nb_classes, False)
         testing_model.build_vgg16_like(input_data, input_labels)
         saver = tf.train.Saver()
@@ -173,35 +174,41 @@ def test_model(config, test_data_gen):
             # Do not forget to reset metrics before using it !
             sess.run(local_init)
             sess.run(testing_model.reset_metrics())
-            # Loads in memory the data and saves/retrieves the features.
-            x_train, y_train = test_data_gen.next_batch(False, False)
-            # Testing loop 
-            it_global = 0
-            while(x_train is not None or y_train is not None or
-                  len(x_train) == 0 or len(y_train) == 0):
-                # Create a batch of batch_size 
-                data_it = data_gen.Data_Iterator(x_train, y_train, batch_size)
-                it_batch = 0
-                while(data_it.is_next_batch()):
-                    print('Batch {}, scanning {}%'.format(it_global, data_it.where_is_it()*100))
-                    input_data_batch, input_labels_batch = data_it.next_batch()
-                    inputs = {input_data : input_data_batch, input_labels : input_labels_batch}
+            # Load the first batch of data in memory
+            features, labels = test_data_gen.gen_batch_dataset(True, True)
+            batch_it = 0
+            while(features is not None and len(features) > 0):
+                # Create the TF input pipeline and preprocess the data
+                test_data_gen.create_tf_dataset_and_preprocessing(features, labels)
+                # Get the first local batch 
+                x_test, y_test = sess.run(test_data_gen.get_next_batch())
+                # Testing loop 
+                while(x_test is not None or y_test is not None or
+                      len(x_test) == 0 or len(y_test) == 0):
+                    
+                    inputs = {input_data : x_test, input_labels : y_test}
                     ops = [testing_model.accuracy_up, testing_model.precision_up,
-                           testing_model.recall_up, testing_model.confusion_matrix_up]
+                           testing_model.recall_up, testing_model.confusion_matrix_up,
+                           update_it_global, it_global]
                     metrics = [testing_model.accuracy, testing_model.precision, 
                                testing_model.recall, testing_model.accuracy_per_class,
                                testing_model.confusion_matrix]
-                    # Update the metrics 
-                    sess.run(ops, feed_dict=inputs)
-                    it_batch += 1
-                # computes the metrics
-                metrics = sess.run(metrics)
-                # plot in console the metrics we want and hyperparameters
-                print('-----\nBATCH {} -----\n'.format(it_global))
-                print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}\nConfusion Matrix : {}\n-----'.format(metrics[0], 
-                  metrics[1], metrics[2], metrics[3], metrics[4]))
-                x_train, y_train = test_data_gen.next_batch(False, False)
-                it_global += 1
+                    # Update the metrics and global iterator
+                    res = sess.run(ops, feed_dict=inputs)
+                    # computes the metrics
+                    metrics_ = sess.run(metrics)
+                    print('Global iteration {}'.format(res[-1]))
+                    # updates the data in batch
+                    x_test, y_test = test_data_gen.get_next_batch(True, True)
+
+                # plots in console the metrics we want and hyperparameters
+                print('-----\nBATCH {} -----\n'.format(batch_it))
+                print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}\nConfusion Matrix : {}\n-----'.format(metrics_[0], 
+                  metrics_[1], metrics_[2], metrics_[3], metrics_[4]))
+                
+                # Updates the data and the batch counter
+                features, labels = test_data_gen.gen_batch_dataset(True, True)
+                batch_it += 1
         else:
             print('Impossible to test the model.')
     end = time.time()
@@ -213,8 +220,8 @@ def main_py():
     tf.reset_default_graph()
     data = 'SF' # in {'SF', 'MNIST', 'CIFAR-10'}
     train_model(data)
-    #test_data_gen = data_gen.Data_Gen(data, utils.config[data], training=False)
-    #test_model(utils.config[data], test_data_gen)
+    #test_model(data)
 
-main_py()
+if __name__ == '__main__':
+    main_py()
 

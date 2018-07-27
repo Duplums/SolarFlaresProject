@@ -135,10 +135,10 @@ class Data_Gen:
             i = 0
         return res, sample_time
     
-    # Extracts some scalars from video that evolves according to the time (ex: SIZE of a frame).
-    # The scalar must be in the frame attributes of a video. These time series are concatenate
+    # Extracts some scalars from video that evolve according to the time (ex: SIZE of a frame).
+    # The scalar must be in the frame attributes of a video. These time series are concatenated
     # in one list for every videos. 'tstart' and 'tend' are used to know when the time series
-    # begin and when they end (from an event, time reversed). If values are missing (<5% by default), 
+    # begin and end (from an event, time reversed). If values are missing (<5% by default), 
     # they are interpolated.
     def extract_timeseries(self, scalars, tstart, tend, loss=0.05):
         if(self.database_name != 'SF'):
