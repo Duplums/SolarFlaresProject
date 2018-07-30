@@ -3,7 +3,8 @@ from sunpy.time import TimeRange
 import sunpy.instr.goes as goes_db
 from datetime import timedelta
 import drms, h5py, cv2
-import os, csv, traceback, re
+import os, csv, traceback, re, glob, sys
+from scipy import stats
 from CNN import utils
 import numpy as np
 
@@ -77,7 +78,99 @@ class Data_Downloader:
                     for attrs in self.goes_attrs:
                         writing_row += [row[attrs]]
                     writer.writerow(writing_row)
-                    
+    
+        
+    # For all files found, counts the number of videos, frames and channels/frames
+    # as well as the mean size for each video.
+    @staticmethod
+    def check_statistics(path_to_files, out = None):
+        if(os.path.isdir(path_to_files)):
+            files = sorted(glob.glob(os.path.join(path_to_files, '*')))
+        elif(os.path.isfile(path_to_files)):
+            files = [path_to_files]
+        else:
+            print('{} is neither a directory nor a file.'.format(path_to_files))
+            raise
+        close_flag = False
+        if(out is None):
+            out = sys.stdout
+        else:
+            try:
+                out = open(out, 'w')
+                close_flag = True
+            except:
+                print('Impossible to redirect output to {}. Redirecting to stdout instead'.format(out))
+                out = sys.stdout
+        results = {'nb_frames' : [], 'avg_size': [], 'nb_channels' : []}
+        glob_counter= 0
+        for file in files:
+            try:
+                with h5py.File(file, 'r') as db:
+                    for vid_key in db.keys():
+                        if(len(db[vid_key].keys())>0):
+                            avg_size = np.array([0, 0])
+                            nb_channels = 0
+                            nb_frames = 0
+                            for frame_key in db[vid_key].keys():
+                                if('channels' in db[vid_key][frame_key].keys() and
+                                    len(db[vid_key][frame_key]['channels'].shape) == 3):
+                                    nb_channels = db[vid_key][frame_key]['channels'].shape[2]
+                                    avg_size += db[vid_key][frame_key]['channels'].shape[0:2]
+                                    nb_frames += 1
+                            
+                            results['nb_frames'] += [nb_frames]
+                            results['avg_size'] += [avg_size/nb_frames]
+                            results['nb_channels'] += [nb_channels]
+                            glob_counter += 1
+            except:                
+                print('Impossible to get descriptors for file {}'.format(file))
+                print(traceback.format_exc())
+        out.write('NB OF VIDEOS : {}\n'.format(glob_counter))
+        out.write('NB OF FRAMES : {}\n'.format(sum(results['nb_frames'])))
+        out.write('NB OF FRAMES / VIDEO:\n')
+        out.write('\t'+str(stats.describe(results['nb_frames'])))
+        out.write('\nSIZE OF VIDEOS:\n')
+        out.write('\t'+str(stats.describe(results['avg_size'])))
+        out.write('\nNB OF CHANNELS:\n')
+        out.write('\t'+str(stats.describe(results['nb_channels'])))
+        if(close_flag):
+            out.close()
+    
+    
+    # Display the peak time of each video in each file
+    # and redirect the output according to 'out'
+    @staticmethod
+    def display_peak_time(path_to_files, out = None):
+        if(os.path.isdir(path_to_files)):
+            files = sorted(glob.glob(os.path.join(path_to_files, '*')))
+        elif(os.path.isfile(path_to_files)):
+            files = [path_to_files]
+        else:
+            print('{} is neither a directory nor a file.'.format(path_to_files))
+            raise
+        close_flag = False
+        if(out is None):
+            out = sys.stdout
+        else:
+            try:
+                out = open(out, 'w')
+                close_flag = True
+            except:
+                print('Impossible to redirect output to {}. Redirecting to stdout instead'.format(out))
+                out = sys.stdout
+        for file in files:
+            try:
+                out.write('File {}:\n'.format(file))
+                with h5py.File(file, 'r') as db:
+                    for vid_key in db.keys():
+                        out.write('\t\'{}\' => {}\n'.format(vid_key, db[vid_key].attrs['peak_time']))
+            except:                
+                print('Impossible to display peak time for file {}'.format(file))
+                print(traceback.format_exc())
+        if(close_flag):
+            out.close()
+           
+    
     
     # Display a video from .hdf5 file
     @staticmethod
@@ -402,12 +495,12 @@ goes_attrs = utils.config['SF']['goes_attrs']
 ar_attrs = utils.config['SF']['ar_attrs']
 ar_segs = utils.config['SF']['segs']
 
-downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
-downloader.download_jsoc_data(files_core_name = 'B_train_jsoc_data',
-                           directory = 'train/B-class-flares',
-                           goes_data_path =goes_data_path, 
-                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
-                           start_time = '2016-06-11',
-                           hours_before_event = 72, sample_time = '@1h',
-                           limit = 1000)
+#downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
+#downloader.download_jsoc_data(files_core_name = 'B_train_jsoc_data',
+#                           directory = 'train/B-class-flares',
+#                           goes_data_path =goes_data_path, 
+#                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
+#                           start_time = '2016-06-11',
+#                           hours_before_event = 72, sample_time = '@1h',
+#                           limit = 1000)
 

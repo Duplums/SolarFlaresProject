@@ -78,7 +78,7 @@ def train_model(data):
     sess.run(local_init)
     start = time.time()
     with sess.as_default():
-        #restore_checkpoint(sess, saver, checkpoint_dir)
+        restore_checkpoint(sess, saver, checkpoint_dir)
         train_writer = tf.summary.FileWriter(tensorboard_dir+'/train', sess.graph)
         profiler = tf.profiler.Profiler(sess.graph)
         # training loop 
@@ -123,7 +123,7 @@ def train_model(data):
                 # computes the metrics
                 metrics_ = sess.run(metrics)
                 # updates the learning rate and the old_loss
-                if(abs(results[2] - old_loss) < epsilon):
+                if(step % 100 == 0 and step > 0):
                     learning_rate /= 2
                 old_loss = results[2]
                 # plot the variables in TensorBoard
@@ -131,13 +131,16 @@ def train_model(data):
                 # plot in console the metrics we want and hyperparameters
                 print('Epoch {}, step {}, accuracy : {}, loss : {}, learning_rate : {}'.format(epochs, step,
                       metrics_[0], results[2], learning_rate))
-                step += 1
-                x_train, y_train = sess.run(train_data_gen.get_next_batch())
                 # save the weigths
                 if(results[10] % checkpoint_iter == 0 or (epochs == num_epochs-1 and x_train is None)):
                     saver.save(sess, os.path.join(checkpoint_dir,'training_vgg16.ckpt'), it_global)
                     print('Checkpoint saved')
-                
+                try:
+                    x_train, y_train = sess.run(train_data_gen.get_next_batch())
+                    step += 1
+                except tf.errors.OutOfRangeError:
+                    break
+            
     end = time.time()
     print("Time usage: " + str(timedelta(seconds=int(round(end-start)))))
     return training_model
@@ -163,7 +166,7 @@ def test_model(data):
         testing_model = model.Model('VGG_16', nb_classes, False)
         testing_model.build_vgg16_like(input_data, input_labels)
         saver = tf.train.Saver()
-        local_init = tf.local_variables_initializer()
+        local_init = [tf.local_variables_initializer(), it_global.initializer]
         
     # Init the graph with the last checkpoint. 
     sess = tf.Session(graph=G)
@@ -199,8 +202,10 @@ def test_model(data):
                     metrics_ = sess.run(metrics)
                     print('Global iteration {}'.format(res[-1]))
                     # updates the data in batch
-                    x_test, y_test = test_data_gen.get_next_batch(True, True)
-
+                    try:
+                        x_test, y_test = sess.run(test_data_gen.get_next_batch())
+                    except tf.errors.OutOfRangeError:
+                        break
                 # plots in console the metrics we want and hyperparameters
                 print('-----\nBATCH {} -----\n'.format(batch_it))
                 print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}\nConfusion Matrix : {}\n-----'.format(metrics_[0], 
@@ -219,8 +224,8 @@ def test_model(data):
 def main_py():
     tf.reset_default_graph()
     data = 'SF' # in {'SF', 'MNIST', 'CIFAR-10'}
-    train_model(data)
-    #test_model(data)
+    #train_model(data)
+    test_model(data)
 
 if __name__ == '__main__':
     main_py()

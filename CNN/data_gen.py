@@ -435,10 +435,7 @@ class Data_Gen:
             print('New TF Dataset created.')
     
     def get_next_batch(self):
-        try:
-            return self.data_iterator.get_next()
-        except tf.errors.OutOfRangeError:
-            return (None, None)
+        return self.data_iterator.get_next()
     
     
     

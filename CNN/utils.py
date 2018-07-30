@@ -9,7 +9,7 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                   'tolerance': 0.001,
                   'batch_norm': True,
                   'nb_classes': 2,
-                  'batch_size': 2, # nb pictures / local batch
+                  'batch_size': 8, # nb pictures / local batch
                   'num_epochs': 100, # nb global batchs considered 
                   'checkpoint_iter': 50, # save every 'checkpoint_iter' global iteration
                   'ar_attrs' : ['T_REC', 'NOAA_AR', 'HARPNUM', 'LAT_FWT', 'LON_FWT',
