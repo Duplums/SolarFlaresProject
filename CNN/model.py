@@ -10,7 +10,7 @@ class Model:
     batch_norm = None
     
     
-    def __init__(self, name = 'ccn_network',\
+    def __init__(self, name = 'neural_network',\
                  nb_classes = 2, training_mode = True,\
                  batch_norm = True, dropout_prob = 0.2):
         self.name = name
@@ -21,10 +21,9 @@ class Model:
     
     #                 GRAPH CONSTRUCTION                        #
     #############################################################
-    def build_vgg16_like(self, data, labels):
+    def build_vgg16_like(self, data):
         # data must have size nb_pictures x height x width x nb_channels
         assert type(data) is tf.Tensor and len(data.shape) == 4
-        assert type(labels) is tf.Tensor
         with tf.variable_scope(self.name):
             (nb_pics, height, width, nb_channels) = data.get_shape().as_list()
             
@@ -99,35 +98,34 @@ class Model:
             self.dense2 = self.fc_layer(self.dense1, 1024, 1024, 'fc2')
             
             # FC-32 [1024] --> [32]
-            self.dense3 = self.fc_layer(self.dense2, 1024, 32, 'fc3')
-            
-            # Results
-            self.logits = self.fc_layer(self.dense3, 32, self.nb_classes, 'logits', activation=None, dropout=False)
-            self.prob = tf.nn.softmax(self.logits)
-            self.pred = tf.argmax(self.prob, axis=1)
-            self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(labels, self.nb_classes), self.logits)
+            self.output = self.fc_layer(self.dense2, 1024, 32, 'fc3')
+            self.logits = self.fc_layer(self.output, 32, self.nb_classes, 'logits', activation=None, dropout=False)
 
-            # Define our metrics
-            self.accuracy, self.accuracy_up = tf.metrics.accuracy(labels, self.pred, name="accuracy")
-            self.precision, self.precision_up = tf.metrics.precision(labels, self.pred, name="precision")
-            self.recall, self.recall_up = tf.metrics.recall(labels, self.pred, name="recall")
-            self.confusion_matrix, self.confusion_matrix_up = self.update_confusion_matrix(labels, self.pred, name="confusion_matrix")
-            self.accuracy_per_class = self.compute_acc_per_class(self.confusion_matrix)
-            
-            #self.accuracy_per_class, self.accuracy_per_class_up = self.metric_acc_per_class(labels, self.pred, name="accuracy_per_class")
-            # Summary for tensorboard visualization
-            tf.summary.scalar('Loss', self.loss)
-            tf.summary.scalar('Accuracy', self.accuracy)
-            tf.summary.scalar('Precision', self.precision)
-            tf.summary.scalar('Recall', self.recall)
-            confusion_image = tf.reshape( tf.cast(self.confusion_matrix, tf.float32),
-                                         [1, self.nb_classes, self.nb_classes, 1])
-            tf.summary.image('confusion', confusion_image)
             self.weights_summary(tf.get_variable('conv1_1/kernel',shape=[3,3,nb_channels,64]), 'first_conv_weights')
-            self.weights_summary(self.dense3, 'last_fc_layer')
-            self.vector_summary(self.accuracy_per_class, 'Accuracy_Per_Class')
+            self.weights_summary(self.output, 'last_fc_layer')
             #self.prob_summary(nb_pics)
+            return self.output
+            
     
+    def build_lstm(self, data, seq_length):
+        # Data must have shape nb_seqs x max_time x n_inputs
+        assert type(data) is tf.Tensor and len(data.shape) == 3
+        assert type(seq_length) is tf.Tensor and len(seq_length.shape) == 1
+        with tf.variable_scope(self.name):
+            lstm_cell = tf.contrib.rnn.LSTMCell(num_units=512, use_peepholes=True, name='LSTM_Cell')
+            rnn_output, rnn_last_state = tf.nn.dynamic_rnn(lstm_cell, data, seq_length, dtype=tf.float32)
+            # rnn_output has size nb_seqs x max_time x output_cell_size [=512]
+            # We're only interest in the last ouput for each sequence (defined according
+            # to the seq_length)
+            batch_range = tf.range(tf.shape(data)[0])
+            # indices = [[0, seq_len[0]-1], [1, seq_len[1]-1], ..., [nb_seqs, seq_len[-1]-1]]
+            indices = tf.stack([batch_range, seq_length - 1], axis=1)
+            # in each sequence i (range), select the line seq_len[i]-1
+            # size : nb_seqs x n_inputs
+            self.output = tf.gather_nd(rnn_output, indices)
+            self.logits = self.fc_layer(self.output, 512, self.nb_classes, 'logits', activation=None, dropout=False)
+            return self.output
+
     
     def spp_layer(self, input_, levels=[4, 2, 1], name='spp_layer', pooling='AVG'): # pooling in {'AVG', 'MAX'}
         shape = tf.cast(tf.shape(input_), tf.float32)
@@ -196,7 +194,29 @@ class Model:
     
     def compute_acc_per_class(self, confusion_matrix):
         acc = tf.truediv(tf.diag_part(confusion_matrix), tf.reduce_sum(confusion_matrix, axis=1)) 
-        return acc
+        return acc    
+    
+    def construct_results(self, labels):
+        with tf.variable_scope(self.name):
+            # Results
+            self.prob = tf.nn.softmax(self.logits)
+            self.pred = tf.argmax(self.prob, axis=1)
+            self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(labels, self.nb_classes), self.logits)
+            # Define our metrics
+            self.accuracy, self.accuracy_up = tf.metrics.accuracy(labels, self.pred, name="accuracy")
+            self.precision, self.precision_up = tf.metrics.precision(labels, self.pred, name="precision")
+            self.recall, self.recall_up = tf.metrics.recall(labels, self.pred, name="recall")
+            self.confusion_matrix, self.confusion_matrix_up = self.update_confusion_matrix(labels, self.pred, name="confusion_matrix")
+            self.accuracy_per_class = self.compute_acc_per_class(self.confusion_matrix)
+            # Summary for tensorboard visualization
+            tf.summary.scalar('Loss', self.loss)
+            tf.summary.scalar('Accuracy', self.accuracy)
+            tf.summary.scalar('Precision', self.precision)
+            tf.summary.scalar('Recall', self.recall)
+            confusion_image = tf.reshape( tf.cast(self.confusion_matrix, tf.float32),
+                                             [1, self.nb_classes, self.nb_classes, 1])
+            tf.summary.image('confusion', confusion_image)
+            self.vector_summary(self.accuracy_per_class, 'Accuracy_Per_Class')
     
     # Useful for testing phase
     def reset_metrics(self):

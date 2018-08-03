@@ -415,15 +415,14 @@ class Data_Downloader:
                         # Change the date format
                         peak_time = self._UTC2JSOC_time(str(peak_time))
                         start_time = self._UTC2JSOC_time(str(start_time))
-                        # Do the request to JSOC database
-                        query = '{}[{}-{}{}]'.format(jsoc_serie, start_time, peak_time, sample_time)
-                        if(len(self.ar_segs)==0): keys = client.query(query, key=self.ar_attrs)
-                        else: keys, segments = client.query(query, key=self.ar_attrs, seg=self.ar_segs)
-                        
-                        
-                        # Downloads the video of this solar flare and construct 
-                        # the HDF5 file.
                         try:
+                            # Do the request to JSOC database
+                            query = '{}[{}-{}{}]'.format(jsoc_serie, start_time, peak_time, sample_time)
+                            if(len(self.ar_segs)==0): keys = client.query(query, key=self.ar_attrs)
+                            else: keys, segments = client.query(query, key=self.ar_attrs, seg=self.ar_segs)
+                        
+                            # Downloads the video of this solar flare and construct 
+                            # the HDF5 file.
                             nb_frame = len(keys.NOAA_AR)-1
                             dumping = False
                             current_vid = current_save_file.create_group('video{}'.format(vid_counter))

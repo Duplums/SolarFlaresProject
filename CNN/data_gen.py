@@ -7,6 +7,7 @@ a graph is needed.
 '''
 
 import os, re, pickle, traceback, math, drms
+from collections import OrderedDict
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
@@ -17,25 +18,32 @@ class Data_Gen:
     
     graph = None
     paths_to_file = None # array of paths where we can find the data
+    output_features_dir = None 
+    output_features = None
+    output_labels = None    
     max_pic_size = None
     size_of_files = None
     memory_size = None
-    features_dir = None
+    num_threads = None
+    prefetch_buffer_size = None
+    input_features_dir = None
     data_dims = None 
     segs = None
     database_name = None
     time_step = None
-    dataset = None
     tf_device = None
     nb_classes = None
     subsampling = None
     resize_method = None
+    dataset = None
     data_iterator = None
+    seq_length = None
+    seq_length_iterator = None
     training_mode = None
     
     def __init__(self, data_name, config, graph, tf_device = '/cpu:0',
                  training=True, max_pic_size=None):
-        assert data_name in {'SF', 'MNIST', 'CIFAR-10', 'IMG_NET'}
+        assert data_name in {'SF', 'SF_LSTM', 'MNIST', 'CIFAR-10', 'IMG_NET'}
         
         self.paths_to_file = []
         self.size_of_files = []
@@ -44,29 +52,46 @@ class Data_Gen:
         self.database_name = data_name
         self.training_mode = training
         self.nb_classes = config['nb_classes']
-        self.segs = config['segs']
         self.batch_size = config['batch_size']
+        self.num_threads = config['num_threads']
+        self.prefetch_buffer_size = config['prefetch_buffer_size']
         self.max_pic_size = max_pic_size
         self.tf_device = tf_device
         self.graph = graph
+        self.subsampling = 1
         
         if(data_name == 'SF'):
             assert config['resize_method'] in {'NONE', 'LIN_RESIZING', 'QUAD_RESIZING', 'ZERO_PADDING'}
-            self.features_dir = config['features_dir']
+            assert os.path.isdir(config['input_features_dir'])
+            assert os.path.isdir(config['output_features_dir'])
+            self.segs = config['segs']
+            self.input_features_dir = config['input_features_dir']
+            self.output_features_dir = config['output_features_dir']
             self.resize_method = config['resize_method']
             self.time_step = config['time_step']
+            self.output_features = {}
+            self.output_labels = {}
+            self._output_features_part_counter = 0
+            if(training):
+                self.subsampling = config['subsampling']
+
         if(training):
-            self.subsampling = config['subsampling']
             paths = config['training_paths']
-        else:
-            self.subsampling = 1
+        else:   
             paths = config['testing_paths']
 
         if(data_name in {'MNIST', 'CIFAR-10', 'IMG_NET'}):
-            print('Warning: no preprocessing for this data base. We assert that the files are organized as follows:\n')
+            print('Warning: no preprocessing for this data base. We assert that the HDF5 files are organized as follows:\n')
             print('\t/features[dataset]\n')
             print('\t/labels[dataset]\n')
-
+        
+        if(data_name == 'SF_LSTM'):
+            print('Warning: we assume that each HDF5 file is organized as follows:\n')
+            print('\t/features\n')
+            print('\t\t meta(i) : numpy array [N_FRAMES(i), N_FEATURES(i)] (i in [1,N])\n')
+            print('\t/labels\n')
+            print('\t\t meta(i) : labels(i) (i in [1,N])\n')
+        
         # First checks
         for path in paths:
             if os.path.exists(path):
@@ -84,10 +109,10 @@ class Data_Gen:
             else:
                 print('Path {} does not exist. Ignored'.format(path))
         
-        if(self.max_pic_size is None):
+        if(self.max_pic_size is None and data_name == 'SF'):
             print('Computing the maximum of picture size...')
             self.max_pic_size = self.get_max_size()
-        if(self.max_pic_size[0] < 0 or self.max_pic_size[1] < 0):
+        if(self.max_pic_size is None or max_pic_size[0] < 0 or self.max_pic_size[1] < 0):
             print('Warning: maximum size unknown ({}), could lead to error'.format(self.max_pic_size))
         else:
             print('Maximum size found : {}'.format(self.max_pic_size))
@@ -185,7 +210,17 @@ class Data_Gen:
         else:
             print('Number of classes > 2 case : not yet implemented')
             raise
-                
+    # Extract the frame numero from the frame key in each video of a SF.
+    # We assume that each frame_key has the following format: 'frame{i}'
+    # where {i} = the frame numero 
+    @staticmethod
+    def _to_frame_num(frame_key):
+        nb = re.search(r'[1-9]?[0-9]?[0-9]', frame_key)
+        if(nb is None):
+            print('Impossible to parse the frame key {}'.format(frame_key))
+            raise
+        return int(nb.group())
+    
     # check 'NaN' in a frame that can have one or multiple channels. Returns
     # a clean frame. INPUT: np array with shape (h, w, c)
     @staticmethod
@@ -249,10 +284,14 @@ class Data_Gen:
         
     # Extract the data from the list of files according to the parameters set.
     # OUTPUT : 2 lists that contains pictures of possibly various sizes and 
-    # the labels associated.
-    def _extract_data(self, files_to_extract, saving = False, retrieve = False):
+    # the labels associated. NOTE: if vid_infos is true, another list containing
+    # video information relatively to the picture is added. Each meta data is 
+    # formatted as : '{name_file}|{name_vid}|{frame_shape}|{frame_nb}'
+    def _extract_data(self, files_to_extract, saving = False, retrieve = False, 
+                      vid_infos = False):
         features = []
         labels = []
+        metadata = []
         for file_path in files_to_extract:
             if(os.path.isfile(file_path)):
                 try:
@@ -261,11 +300,15 @@ class Data_Gen:
                         if(self.database_name == 'SF'):
                             curr_features = None
                             curr_labels = None
-                            if((retrieve or saving) and self.features_dir is not None):
+                            curr_meta = None
+                            if((retrieve or saving) and self.input_features_dir is not None):
                                 features_name =  re.sub('.hdf5', '', os.path.basename(file_path)) + '_features.bin'
                                 labels_name = re.sub('.hdf5', '', os.path.basename(file_path)) + '_labels.bin'
-                                features_path = os.path.join(self.features_dir, features_name)
-                                labels_path = os.path.join(self.features_dir, labels_name)
+                                features_path = os.path.join(self.input_features_dir, features_name)
+                                labels_path = os.path.join(self.input_features_dir, labels_name)
+                                if(vid_infos):
+                                    metadata_name = re.sub('.hdf5', '', os.path.basename(file_path)) + '_meta.bin'
+                                    metadata_path = os.path.join(self.input_features_dir, metadata_name)
                             # First, check if we can retrieve features
                             if(retrieve and os.path.isfile(features_path) 
                                 and os.path.isfile(labels_path)):
@@ -274,7 +317,12 @@ class Data_Gen:
                                         curr_features = pickle.load(f)
                                     with open(labels_path, 'rb') as l:
                                         curr_labels = pickle.load(l)
+                                    if(vid_infos):
+                                      with open(metadata_path, 'rb') as m:
+                                        curr_meta = pickle.load(m)
                                     print('Data retrieved from {}, {}'.format(features_name, labels_name))
+                                    if(vid_infos):
+                                        print('Meta data retrieved from {}'.format(metadata_name))
                                 except:
                                     print('Error while retrieving features.')
                                     print(traceback.format_exc())
@@ -284,9 +332,11 @@ class Data_Gen:
                                 # and erase 'NaN'
                                 curr_features = []
                                 curr_labels = []
+                                curr_meta= []
                                 for vid_key in db.keys():
                                     frame_counter = 0
                                     label = self._label(db[vid_key].attrs['event_class'])
+                                    meta = os.path.basename(file_path) + '|'+vid_key+'|'
                                     for frame_key in db[vid_key].keys():
                                         # subsample the video
                                         if(frame_counter % self.subsampling == 0):
@@ -294,6 +344,7 @@ class Data_Gen:
                                                 frame_tensor = self._extract_frame(db[vid_key][frame_key]['channels'], db[vid_key][frame_key].attrs['SEGS'])                              
                                                 curr_features += [frame_tensor]
                                                 curr_labels += [label]
+                                                curr_meta += [meta+str(frame_tensor.shape[:2])+'|'+str(self._to_frame_num(frame_key))]
                                 print('Data extracted from file {}.'.format(file_path))
                                 if(saving):
                                     try:
@@ -307,17 +358,27 @@ class Data_Gen:
                                         raise
                             features += curr_features
                             labels += curr_labels
+                            if(vid_infos):
+                                metadata += curr_meta
                                 
                         else:
-                            curr_features = np.array(db['features'], dtype=np.float32)
-                            curr_labels = np.array(db['labels'], dtype=np.int32)
+                            if(self.database_name in {'MNIST', 'CIFAR-10', 'IMG_NET'}):
+                                if(vid_infos):
+                                    print('Warning: no meta data available for data base {}'.format(self.database_name))
+                                curr_features = np.array(db['features'])
+                                curr_labels = np.array(db['labels'])
+                            elif(self.database_name == 'SF_LSTM'):
+                                curr_features = []
+                                curr_labels = []
+                                for f_key in db['features'].keys():
+                                    curr_features += [np.array(db['features'][f_key])]
+                                    curr_labels += [np.array(db['labels'][f_key])]
+                                if(vid_infos):
+                                    metadata += list(db['features'].keys())
+                            
                             if(len(curr_features) == len(curr_labels)):
-                                if(features is None):
-                                    features = curr_features
-                                    labels = curr_labels
-                                else:
-                                    features = np.concatenate((features, curr_features))
-                                    labels = np.concatenate((labels, curr_labels))
+                                features += curr_features
+                                labels +=  curr_labels
                             else:
                                 print('Features and labels have different lengths in file {}. Ignored'.format(file_path))
                 except:
@@ -325,13 +386,18 @@ class Data_Gen:
                     print(traceback.format_exc())
             else:
                 print('File {} does not exist. Ignored'.format(file_path))
-        return (features, labels)
+        
+        if(vid_infos):
+            return (features, labels, metadata)
+        else:
+            return (features, labels)
     
     
     def gen_batch_dataset(self, 
                    save_extracted_data = False, 
                    retrieve_data = False,
-                   take_random_files = False):
+                   take_random_files = False,
+                   get_metadata = False):
         
         batch_mem = 0
         if(take_random_files):
@@ -351,35 +417,88 @@ class Data_Gen:
                 counter += 1
             else:
                 break
-        self.size_of_files = [s for k, s in enumerate(self.size_of_files) if k not in files_index[:counter]]
-        self.paths_to_file = [s for k, s in enumerate(self.paths_to_file) if k not in files_index[:counter]]
+        if(not self.training_mode or not take_random_files):
+            self.size_of_files = [s for k, s in enumerate(self.size_of_files) if k not in files_index[:counter]]
+            self.paths_to_file = [s for k, s in enumerate(self.paths_to_file) if k not in files_index[:counter]]
         
         print('Files to be loaded in memory : ')
         for f in files_in_batch:
             print('\t - {} => {}MB'.format(f, math.ceil(os.path.getsize(f)/(1024.0*1024))))
         # Load the data in memory
+        if(get_metadata):
+            (features, labels, meta) = self._extract_data(files_in_batch, save_extracted_data, retrieve_data, True)
+            print('Data set loaded.')
+            return (features, labels, meta)
+        
         (features, labels) = self._extract_data(files_in_batch, save_extracted_data, retrieve_data)
         print('Data set loaded.')
         return (features, labels)
     
+    
+    # We assume that each metadata are formatted as : '{name_file}|{name_vid}|{frame_shape}|{name_frame}'
+    def add_output_features(self, features, labels, metadata):
+        assert len(features) == len(labels) == len(metadata)
+        
+        for k in range(len(metadata)):
+            meta = metadata[k].decode()
+            if(re.match('.+\|.+\|.+\|.+', meta)):
+                meta_list = re.split(r'\|', meta)
+                if(len(meta_list) == 4):
+                    feature_key = meta_list[0]+'_'+meta_list[1]
+                    frame_nb = int(meta_list[3])
+                    if(feature_key in self.output_features):
+                        if(frame_nb not in self.output_features[feature_key]):
+                            self.output_features[feature_key].update({frame_nb: features[k]})
+                        else:
+                            print('Warning: frame {} already exists. Ignored'.format(frame_nb))
+                    else:
+                        self.output_features[feature_key] = {frame_nb: features[k]}
+                        self.output_labels[feature_key] = labels[k]
+                else:
+                    print('Impossible to parse the metadata {}.Feature ignored'.format(meta))
+            else:
+                print('Unknown format for metadata {}. Feature ignored.'.format(meta))
+    
+    def dump_output_features(self):
+        features_path = os.path.join(self.output_features_dir, 'output_features_part_{}.hdf5'.format(self._output_features_part_counter))
+        with h5.File(features_path, 'w') as f:
+            f.create_group('features')
+            f.create_group('labels')
+            for f_key in self.output_features:
+                # Sort the dictionnary according to frame name
+                self.output_features[f_key] = OrderedDict(sorted(self.output_features[f_key].items(), key=lambda t: t[0]))
+                # Create a np array for the video (size nb_frames x n_features) and store it
+                f['features'].create_dataset(f_key, data=np.array(list(self.output_features[f_key].values()), dtype=np.float32))
+                f['labels'].create_dataset(f_key, data=self.output_labels[f_key], dtype=np.int32)
+        
+        # Clears the dictionnaries and increments the part counter
+        self.output_features.clear()
+        self.output_labels.clear()
+        self._output_features_part_counter += 1
+
+        
     #############################################################
     #                   TENSORFLOW GRAPH                        #
     #############################################################
     
      # Used as input for the TensorFlow pipeline
     @staticmethod
-    def generator(features, labels):
-        for k in range(len(features)):
-            yield (features[k], labels[k])
+    def generator(features, labels, meta=None):
+        if(meta is None):
+            for k in range(len(features)):
+                yield (features[k], labels[k])
+        elif(meta is not None and len(meta) == len(features)):
+            for k in range(len(features)):
+                yield (features[k], labels[k], meta[k])
+        else:
+            print('Metadata have length {} but features have length {}.'.format(len(meta), len(features)))
+            raise
     
     # We assume that 'tensor' is a picture with shapes
     # (h, w, c) and the key associated should be unique 
     # according to the size.
     def _get_key_from_tensor(self, tensor):
         return tf.cast(tf.shape(tensor)[0] +(max(self.max_pic_size)+1)*tf.shape(tensor)[1], tf.int64)
-    
-    def _shuffle_per_batch(self, dataset):
-        return dataset.batch(self.batch_size).shuffle(self.batch_size)
    
     def _zero_padding(self, pic):
         pad_x_up = math.floor((self.max_pic_size[0]-pic.shape[0])/2.0)
@@ -392,50 +511,66 @@ class Data_Gen:
     
     def data_preprocessing(self):
         if(self.resize_method == 'NONE'):
-            self.dataset = self.dataset.map(lambda pic, label : (tf.image.per_image_standardization(pic), label))
+            self.dataset = self.dataset.map(lambda pic, label, *kw: (tf.image.per_image_standardization(pic), label, *kw), self.num_threads)
         
         elif(self.resize_method == 'LIN_RESIZING'):
-            self.dataset = self.dataset.map(lambda pic, label : (tf.image.per_image_standardization(
-                                                                    tf.image.resize_images(pic, 
-                                                                                           size=self.data_dims[0:2], 
-                                                                                           method=tf.image.ResizeMethod.BILINEAR)),
-                                                                 label))
-            
-            
+            self.dataset = self.dataset.map(lambda pic, label, *kw: (tf.image.per_image_standardization(tf.image.resize_images(pic, size=self.data_dims[0:2], 
+                                                                                                                               method=tf.image.ResizeMethod.BILINEAR)),
+                                                                    label, *kw), self.num_threads)
+        
         elif(self.resize_method == 'QUAD_RESIZING'):
-            self.dataset = self.dataset.map(lambda pic, label : (tf.image.per_image_standardization(
+            self.dataset = self.dataset.map(lambda pic, label, *kw : (tf.image.per_image_standardization(
                                                                     tf.image.resize_images(pic, 
                                                                                            size=self.data_dims[0:2], 
                                                                                            method=tf.image.ResizeMethod.BICUBIC)),
-                                                                 label))
+                                                                 label, *kw), self.num_threads)
         
         elif(self.resize_method == 'ZERO_PADDING'):
-            self.dataset = self.dataset.map(lambda pic, label : (self._zero_padding(tf.image.per_image_standardization(pic)),
-                                                                 label))
+            self.dataset = self.dataset.map(lambda pic, label, *kw : (self._zero_padding(tf.image.per_image_standardization(pic)),
+                                                                 label, *kw), self.num_threads)
             
         else:
             print('Error: unknown resizing method')
             raise
     
     
-    def create_tf_dataset_and_preprocessing(self, features, labels):
+    def create_tf_dataset_and_preprocessing(self, features, labels, metadata=None):
         print('Constructing the new TensorFlow input pipeline on device {}...'.format(self.tf_device))
         with self.graph.as_default(), tf.device(self.tf_device):
-            self.dataset = tf.data.Dataset.from_generator(lambda: self.generator(features, labels),
-                                                      output_types = (tf.float32, tf.int32),
-                                                      output_shapes = (tf.TensorShape([None, None, self.data_dims[2]]),
-                                                                       tf.TensorShape([])))
-            print('Data preprocessing...')
-            self.data_preprocessing()
-            print('Grouping pictures by size...')
-            self.dataset = self.dataset.apply(tf.contrib.data.group_by_window(lambda pic, label : self._get_key_from_tensor(pic),
-                                                                              lambda key, tensors : self._shuffle_per_batch(tensors),
-                                                                              window_size=self.batch_size))
+            if(metadata is None):
+                output_types = (tf.float32, tf.int32)
+                output_shapes = (tf.TensorShape(self.data_dims), tf.TensorShape([]))
+            else:
+                output_types = (tf.float32, tf.int32, tf.string)
+                output_shapes = (tf.TensorShape(self.data_dims), tf.TensorShape([]), tf.TensorShape([]))
+
+            self.dataset = tf.data.Dataset.from_generator(lambda: self.generator(features, labels, metadata),
+                                                      output_types = output_types,
+                                                      output_shapes = output_shapes)
+            if(self.database_name in {'SF', 'MNIST', 'CIFAR-10', 'IMG_NET'}):
+                print('Data preprocessing...')
+                self.data_preprocessing()
+                print('Grouping pictures by size...')
+                self.dataset = self.dataset.apply(tf.contrib.data.group_by_window(lambda pic, label, *kw: self._get_key_from_tensor(pic),
+                                                                                  lambda key, tensors : tensors.batch(self.batch_size),
+                                                                                  window_size=self.batch_size))
+            elif(self.database_name == 'SF_LSTM'):
+                print('Getting sequence length from input features....')
+                self.seq_length = self.dataset.apply(tf.contrib.data.map_and_batch(lambda seq, label, *kw: tf.shape(seq)[0], 
+                                                                                   self.batch_size, self.num_threads))
+                self.seq_length_iterator = self.seq_length.make_one_shot_iterator()
+                print('Zero-padding each sequence according to the max seq length in each batch...')
+                self.dataset = self.dataset.padded_batch(self.batch_size, padded_shapes=output_shapes)
+            
+            self.dataset = self.dataset.prefetch(buffer_size = self.prefetch_buffer_size)
             self.data_iterator = self.dataset.make_one_shot_iterator()
             print('New TF Dataset created.')
     
     def get_next_batch(self):
-        return self.data_iterator.get_next()
+        if(self.database_name == 'SF_LSTM'):
+            return self.data_iterator.get_next(), self.seq_length_iterator.get_next()
+        else:
+            return self.data_iterator.get_next()
     
     
     
