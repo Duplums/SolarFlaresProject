@@ -541,10 +541,10 @@ class Data_Gen:
         with self.graph.as_default(), tf.device(self.tf_device):
             if(metadata is None):
                 output_types = (tf.float32, tf.int32)
-                output_shapes = (tf.TensorShape(self.data_dims), tf.TensorShape([]))
+                output_shapes = (tf.TensorShape([None, None, self.data_dims[2]]), tf.TensorShape([]))
             else:
                 output_types = (tf.float32, tf.int32, tf.string)
-                output_shapes = (tf.TensorShape(self.data_dims), tf.TensorShape([]), tf.TensorShape([]))
+                output_shapes = (tf.TensorShape([None, None, self.data_dims[2]]), tf.TensorShape([]), tf.TensorShape([]))
 
             self.dataset = tf.data.Dataset.from_generator(lambda: self.generator(features, labels, metadata),
                                                       output_types = output_types,
