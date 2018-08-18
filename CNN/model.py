@@ -125,7 +125,8 @@ class Model:
             self.output = tf.gather_nd(rnn_output, indices)
             self.logits = self.fc_layer(self.output, 512, self.nb_classes, 'logits', activation=None, dropout=False)
             return self.output
-
+        
+    
     
     def spp_layer(self, input_, levels=[4, 2, 1], name='spp_layer', pooling='AVG'): # pooling in {'AVG', 'MAX'}
         shape = tf.cast(tf.shape(input_), tf.float32)
@@ -192,7 +193,8 @@ class Model:
             update = tf.assign_add(confusion_matrix, tf.confusion_matrix(labels, pred, self.nb_classes), name='update')
             return confusion_matrix, update
     
-    def compute_acc_per_class(self, confusion_matrix):
+    @staticmethod
+    def compute_acc_per_class(confusion_matrix):
         acc = tf.truediv(tf.diag_part(confusion_matrix), tf.reduce_sum(confusion_matrix, axis=1)) 
         return acc    
     

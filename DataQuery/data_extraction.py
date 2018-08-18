@@ -2,7 +2,7 @@ from astropy.io import fits
 from sunpy.time import TimeRange
 import sunpy.instr.goes as goes_db
 from datetime import timedelta
-import drms, h5py, cv2
+import drms, h5py, cv2, math
 import os, csv, traceback, re, glob, sys
 from scipy import stats
 from CNN import utils
@@ -81,7 +81,7 @@ class Data_Downloader:
     
         
     # For all files found, counts the number of videos, frames and channels/frames
-    # as well as the mean size for each video.
+    # as well as the mean size and diff between max and min size for each video.
     @staticmethod
     def check_statistics(path_to_files, out = None):
         if(os.path.isdir(path_to_files)):
@@ -101,25 +101,32 @@ class Data_Downloader:
             except:
                 print('Impossible to redirect output to {}. Redirecting to stdout instead'.format(out))
                 out = sys.stdout
-        results = {'nb_frames' : [], 'avg_size': [], 'nb_channels' : []}
+        results = {'nb_frames' : [], 'avg_size': [], 'nb_channels' : [], 'min_max_size': []}
         glob_counter= 0
         for file in files:
             try:
                 with h5py.File(file, 'r') as db:
                     for vid_key in db.keys():
                         if(len(db[vid_key].keys())>0):
+                            min_size = math.inf
+                            max_size = -math.inf
                             avg_size = np.array([0, 0])
                             nb_channels = 0
                             nb_frames = 0
                             for frame_key in db[vid_key].keys():
                                 if('channels' in db[vid_key][frame_key].keys() and
                                     len(db[vid_key][frame_key]['channels'].shape) == 3):
+                                    max_size = max(max_size, np.prod(db[vid_key][frame_key]['channels'].shape[0:2]))
+                                    min_size = min(min_size, np.prod(db[vid_key][frame_key]['channels'].shape[0:2]))
                                     nb_channels = db[vid_key][frame_key]['channels'].shape[2]
                                     avg_size += db[vid_key][frame_key]['channels'].shape[0:2]
                                     nb_frames += 1
+                                    if(max_size > min_size):
+                                        print('Vid {}, frame {} => {}'.format(vid_key, frame_key, db[vid_key][frame_key]['channels'].shape[0:2]))
                             
                             results['nb_frames'] += [nb_frames]
                             results['avg_size'] += [avg_size/nb_frames]
+                            results['min_max_size'] +=[max_size-min_size]
                             results['nb_channels'] += [nb_channels]
                             glob_counter += 1
             except:                
@@ -131,6 +138,8 @@ class Data_Downloader:
         out.write('\t'+str(stats.describe(results['nb_frames'])))
         out.write('\nSIZE OF VIDEOS:\n')
         out.write('\t'+str(stats.describe(results['avg_size'])))
+        out.write('\nMAX-MIN SIZE OF VIDEOS:\n')
+        out.write('\t'+str(stats.describe(results['min_max_size'])))
         out.write('\nNB OF CHANNELS:\n')
         out.write('\t'+str(stats.describe(results['nb_channels'])))
         if(close_flag):

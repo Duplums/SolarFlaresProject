@@ -352,6 +352,7 @@ class Data_Gen:
                                             pickle.dump(curr_features, f)
                                         with open(labels_path, 'wb') as l:
                                             pickle.dump(curr_labels, l)
+                                        print('Features saved in {}'.format(self.input_features_dir))
                                     except:
                                         print('Impossible to save the data extracted.')
                                         print(traceback.format_exc())
@@ -397,7 +398,8 @@ class Data_Gen:
                    save_extracted_data = False, 
                    retrieve_data = False,
                    take_random_files = False,
-                   get_metadata = False):
+                   get_metadata = False,
+                   rm_paths_to_file = True):
         
         batch_mem = 0
         if(take_random_files):
@@ -417,7 +419,7 @@ class Data_Gen:
                 counter += 1
             else:
                 break
-        if(not self.training_mode or not take_random_files):
+        if(rm_paths_to_file):
             self.size_of_files = [s for k, s in enumerate(self.size_of_files) if k not in files_index[:counter]]
             self.paths_to_file = [s for k, s in enumerate(self.paths_to_file) if k not in files_index[:counter]]
         

@@ -99,7 +99,8 @@ def train_model(data):
             features, labels = train_data_gen.gen_batch_dataset(save_extracted_data=(model_name=='SF'), 
                                                                 retrieve_data=(model_name=='SF'),
                                                                 take_random_files=True,
-                                                                get_metadata=False)
+                                                                get_metadata=False,
+                                                                rm_paths_to_file = False)
             # Create the TF input pipeline and preprocess the data
             train_data_gen.create_tf_dataset_and_preprocessing(features, labels)
             # Computes every ops in each step            
@@ -225,43 +226,40 @@ def test_model(data, test_on_training = False, save_features = False):
             while(features is not None and len(features) > 0):
                 # Create the TF input pipeline and preprocess the data
                 test_data_gen.create_tf_dataset_and_preprocessing(features, labels, metadata)
-                # Get the first local batch 
-                data_test = sess.run(test_data_gen.get_next_batch())
                 # Testing loop 
                 end_of_data = False
-                
-                while(not end_of_data):    
-                    if(model_name == 'LSTM'):
-                        inputs = {input_data : data_test[0][0],
-                                  input_labels: data_test[0][1],
-                                  input_seq_length : data_test[1]}
-                    else:
-                        inputs = {input_data : data_test[0],
-                                  input_labels: data_test[1]}
-                    ops = [testing_model.accuracy_up, testing_model.precision_up,
-                           testing_model.recall_up, testing_model.confusion_matrix_up,
-                           testing_model.prob, update_it_global, it_global]
-                    
-                    # we also want the output of our network
-                    if(save_features):
-                        ops += [testing_model.dense2]
-                    
-                    metrics = [testing_model.accuracy, testing_model.precision, 
-                               testing_model.recall, testing_model.accuracy_per_class,
-                               testing_model.confusion_matrix]
-                    # Computes the output, updates the metrics and global iterator
-                    res = sess.run(ops, feed_dict=inputs)
-                    
-                    # add the features to a queue before its real saving on disk
-                    if(save_features):
-                        test_data_gen.add_output_features(res[-1], data_test[1], data_test[2])
-                    # computes the metrics
-                    metrics_ = sess.run(metrics)
-                    #print('Global iteration {}'.format(res[6]))
-                    #print('Proba : {}'.format(res[4]))
-                    # updates the data in batch
+                while(not end_of_data):
                     try:
                         data_test = sess.run(test_data_gen.get_next_batch())
+                        if(model_name == 'LSTM'):
+                            inputs = {input_data : data_test[0][0],
+                                      input_labels: data_test[0][1],
+                                      input_seq_length : data_test[1]}
+                        else:
+                            inputs = {input_data : data_test[0],
+                                      input_labels: data_test[1]}
+                        ops = [testing_model.accuracy_up, testing_model.precision_up,
+                               testing_model.recall_up, testing_model.confusion_matrix_up,
+                               testing_model.prob, update_it_global, it_global]
+                        
+                        # we also want the output of our network
+                        if(save_features):
+                            ops += [testing_model.dense2]
+                        
+                        metrics = [testing_model.accuracy, testing_model.precision, 
+                                   testing_model.recall, testing_model.accuracy_per_class,
+                                   testing_model.confusion_matrix]
+                        # Computes the output, updates the metrics and global iterator
+                        res = sess.run(ops, feed_dict=inputs)
+                        
+                        # add the features to a queue before its real saving on disk
+                        if(save_features):
+                            test_data_gen.add_output_features(res[-1], data_test[1], data_test[2])
+                        # computes the metrics
+                        metrics_ = sess.run(metrics)
+                        #print('Global iteration {}'.format(res[6]))
+                        #print('Proba : {}'.format(res[4]))
+                        # updates the data in batch
                     except tf.errors.OutOfRangeError:
                         end_of_data = True
                 
@@ -290,6 +288,6 @@ def test_model(data, test_on_training = False, save_features = False):
 if __name__ == '__main__':
     tf.reset_default_graph()
     data = 'SF_LSTM' # in {'SF', 'SF_LSTM', 'MNIST', 'CIFAR-10'}
-    test_model(data, True, True)
-    #test_model(data, save_features=True)
+    test_model(data)
+    #test_model(data)
 
