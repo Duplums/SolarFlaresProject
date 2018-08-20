@@ -1,5 +1,5 @@
 import tensorflow as tf
-import time, os, traceback
+import time, os, traceback, argparse
 from datetime import timedelta
 import model, utils, data_gen
 
@@ -289,8 +289,39 @@ def test_model(data, test_on_training = False, save_features = False):
 
     
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("data_type", type=str, help="Set the working data set.", choices=["SF", "SF_LSTM", "MNIST", "CIFAR-10"])
+    parser.add_argument("--training", type=bool, help="Set the mode (training or testing mode).", default=True)
+    parser.add_argument("--data_dims", nargs="+", help="Set the dimensions of feature ([H, W, C] for pictures) in the data set. None values accepted.")
+    parser.add_argument("--batch_memsize", type=int, help="Set the memory size of each batch loaded in memory.")
+    parser.add_argument("-m", "--model", type=str, help="Set the neural network model used.", choices=["VGG_16", "LSTM"])
+    parser.add_argument("-t", "--num_threads", type=int, help="Set the number of threads used for the preprocessing.")
+    parser.add_argument("-c", "--checkpoint", type=str, help="Set the path to the checkpoint directory.")
+    parser.add_argument("--tensorboard", type=str, help="Set the path to the tensorboard directory.")
+    parser.add_argument("-r", "--resize_method", type=str, help="Set the resizing method.", choices=["NONE", "LIN_RESIZING", "QUAD_RESIZING", "ZERO_PADDING"])
+    parser.add_argument("-b", "--batch_size", type=int, help="Set the number of features in each batch used during the training/testing phase.")
+    parser.add_argument("-p", "--prefetch_batch_size", type=int, help="Set the number of pre-fetch features in each batch.")
+    parser.add_argument("-s", "--subsampling", type=int, help="Set the subsampling value for each videos (only for SF data set).")
+    parser.add_argument("-e", "--num_epochs", type=int, help="Set the total number of epochs for the training phase.")
+    
+    args = parser.parse_args()
+    data = args.data_type
+    for key, val in args._get_kwargs():
+        if(val is not None):
+            if(key=='data_dims'): #Special case to accept 'None' values
+                data_dims = []
+                for k in val:
+                    if(k == 'None'):
+                        data_dims += [None]
+                    else:
+                        data_dims += [int(k)]
+                utils.config[data][key] = data_dims
+            elif(key!='data_type' and key!='training'):
+                utils.config[data][key] = val
     tf.reset_default_graph()
-    data = 'SF' # in {'SF', 'SF_LSTM', 'MNIST', 'CIFAR-10'}
-    train_model(data)
-    #test_model(data)
+    print(utils.config[data])
+    if(args.training):
+        train_model(data)
+    else:
+        test_model(data)
 
