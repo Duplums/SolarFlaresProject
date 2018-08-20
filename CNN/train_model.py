@@ -146,8 +146,8 @@ def train_model(data):
                         # computes the metrics
                         metrics_ = sess.run(metrics)
                         # updates the learning rate and the old_loss
-                        if(batch_it % 100 == 0 and step > 0):
-                            learning_rate /= 2
+                        #if(batch_it ):
+                        #    learning_rate /= 2
                         # plot the variables in TensorBoard
                         train_writer.add_summary(results[0], global_step=results[10])
                         # plot in console the metrics we want and hyperparameters
