@@ -2,6 +2,7 @@ import tensorflow as tf
 import time, os, traceback, argparse
 from datetime import timedelta
 import model, utils, data_gen
+import numpy as np
 
 # config: dict containing every info for training mode
 # train_data_gen: load in RAM the data when needed
@@ -177,14 +178,14 @@ def train_model(data):
 # by the CNN as a list of Tensor (np array) of dimension:
 # nb_time_step x n_features where n_features = output space dim
             
-def test_model(data, test_on_training = False, save_features = False):
+def test_model(data, test_on_training_and_save_features = False):
     config = utils.config[data]
     checkpoint_dir = config['checkpoint']
     nb_classes = config['nb_classes']
     model_name = config['model']
     # Testing graph
     G = tf.Graph()
-    test_data_gen = data_gen.Data_Gen(data, config, G, training=test_on_training,
+    test_data_gen = data_gen.Data_Gen(data, config, G, training=test_on_training_and_save_features,
                                       max_pic_size=[3000,3000])
     with G.as_default(), tf.device('/cpu:0'):        
         input_data = tf.placeholder(dtype=tf.float32,
@@ -221,8 +222,8 @@ def test_model(data, test_on_training = False, save_features = False):
             sess.run(local_init)
             sess.run(testing_model.reset_metrics())
             # Load the first batch of data in memory
-            features, labels, metadata = test_data_gen.gen_batch_dataset(save_extracted_data = (model_name=='SF'), 
-                                                                         retrieve_data = (model_name=='SF'),
+            features, labels, metadata = test_data_gen.gen_batch_dataset(save_extracted_data = False, 
+                                                                         retrieve_data =  False,
                                                                          take_random_files = False,
                                                                          get_metadata=True)
             batch_it = 0
@@ -247,7 +248,7 @@ def test_model(data, test_on_training = False, save_features = False):
                                testing_model.pool5, testing_model.spp]
                         
                         # we also want the output of our network
-                        if(save_features):
+                        if(test_on_training_and_save_features):
                             ops += [testing_model.dense2]
                         
                         metrics = [testing_model.accuracy, testing_model.precision, 
@@ -256,7 +257,7 @@ def test_model(data, test_on_training = False, save_features = False):
                         # Computes the output, updates the metrics and global iterator
                         res = sess.run(ops, feed_dict=inputs)
                         # add the features to a queue before its real saving on disk
-                        if(save_features):
+                        if(test_on_training_and_save_features):
                             test_data_gen.add_output_features(res[-1], data_test[1], data_test[2])
                         # computes the metrics
                         metrics_ = sess.run(metrics)
@@ -268,16 +269,16 @@ def test_model(data, test_on_training = False, save_features = False):
                 
                 # Dump the features in the queue (cannot be done before because
                 # we do not control which pictures are given to the network)
-                if(save_features):
+                if(test_on_training_and_save_features):
                     test_data_gen.dump_output_features()
                 # plots in console the metrics we want and hyperparameters
                 print('-----\nBATCH {} -----\n'.format(batch_it))
                 print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}\nConfusion Matrix : {}\n-----'.format(metrics_[0], 
                   metrics_[1], metrics_[2], metrics_[3], metrics_[4]))
-                
+                np.save(checkpoint_dir+'/confusion_matrix', metrics_[4])
                 # Updates the data and the batch counter
-                features, labels, metadata = test_data_gen.gen_batch_dataset(save_extracted_data = (model_name=='SF'), 
-                                                                   retrieve_data = (model_name=='SF'),
+                features, labels, metadata = test_data_gen.gen_batch_dataset(save_extracted_data = False, 
+                                                                   retrieve_data = False,
                                                                    take_random_files = False, 
                                                                    get_metadata=True)
                 batch_it += 1
@@ -291,7 +292,8 @@ def test_model(data, test_on_training = False, save_features = False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("data_type", type=str, help="Set the working data set.", choices=["SF", "SF_LSTM", "MNIST", "CIFAR-10"])
-    parser.add_argument("--training", type=bool, help="Set the mode (training or testing mode).", default=True)
+    parser.add_argument("--testing", help="Set the mode (training or testing mode).", default=False, action='store_true')
+    parser.add_argument("--save_features", help="If this option is enabled, it saves the output features from the training set.", default=False, action='store_true')
     parser.add_argument("--data_dims", nargs="+", help="Set the dimensions of feature ([H, W, C] for pictures) in the data set. None values accepted.")
     parser.add_argument("--batch_memsize", type=int, help="Set the memory size of each batch loaded in memory.")
     parser.add_argument("-m", "--model", type=str, help="Set the neural network model used.", choices=["VGG_16", "LSTM"])
@@ -319,9 +321,8 @@ if __name__ == '__main__':
             elif(key!='data_type' and key!='training'):
                 utils.config[data][key] = val
     tf.reset_default_graph()
-    print(utils.config[data])
-    if(args.training):
-        train_model(data)
+    if(args.testing):
+        test_model(data, args.save_features)
     else:
-        test_model(data)
+        train_model(data)
 
