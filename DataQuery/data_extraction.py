@@ -528,8 +528,12 @@ class Data_Downloader:
                                         print('Memory usage > {}MB. Dumping...'.format(3*self.mem_limit))
                                         dumping = True
                                 nb_frame -= 1
-                            
-                            print('Video {} associated to event {} extracted ({} frames)'.format(vid_counter, event[peak], frame_counter))
+                            if(frame_counter == 0):
+                                del current_vid
+                                vid_counter -=1 
+                                print('No frame downloaded, video erased.')
+                            else:
+                                print('Video {} associated to event {} extracted ({} frames)'.format(vid_counter, event[peak], frame_counter))
 
                         except: 
                             print('Impossible to extract data for event {0} (nb {1})'.format(event[peak], counter))
@@ -560,12 +564,12 @@ goes_attrs = utils.config['SF']['goes_attrs']
 ar_attrs = utils.config['SF']['ar_attrs']
 ar_segs = utils.config['SF']['segs']
 
-#downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
-#downloader.download_jsoc_data(files_core_name = 'B_train_jsoc_data',
-#                           directory = 'train/B-class-flares',
-#                           goes_data_path =goes_data_path, 
-#                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
-#                           start_time = '2016-06-11',
-#                           hours_before_event = 72, sample_time = '@1h',
-#                           limit = 1000)
+downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
+downloader.download_jsoc_data(files_core_name = 'B_train_jsoc_data',
+                           directory = 'train/B-class-flares',
+                           goes_data_path =goes_data_path, 
+                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
+                           start_time = '2016-06-11',
+                           hours_before_event = 72, sample_time = '@1h',
+                           limit = 1000)
 
