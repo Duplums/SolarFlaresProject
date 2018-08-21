@@ -62,7 +62,7 @@ class Data_Downloader:
     def download_goes_data(self, file_name = 'GOES_data.csv',
                            tstart = '2010-05-01', tend = '2018-07-01'):
         if('noaa_active_region' not in self.goes_attrs):
-            self.goes_attrs = ['noaa_active_region']
+            self.goes_attrs += ['noaa_active_region']
             print('Warning: \'noaa_active_region\' not in goes_attrs. Added.')
         file_path = os.path.join(self.main_path, file_name)
         if(os.path.exists(file_path)):
@@ -79,7 +79,67 @@ class Data_Downloader:
                         writing_row += [row[attrs]]
                     writer.writerow(writing_row)
     
-        
+    # This function aims to select 'relevant' B-class flare events from the
+    # GOES csv file. We assume (NOT checked) that this .csv is formated as follows:
+    # [class NOAA_ar_num event_date start_time end_time peak_time]
+    # The algorithm extracts the B-flares :
+    #   - that are not 'too closed' from a M-X flare eruption (for the same AR)
+    #   - that are not 'too closed' from a B-flare eruption (for the same AR)
+    # 'Too closed' is controlled by the parameter 'time_window' (in days)
+    @staticmethod
+    def extract_B_flares_from_goes(goes_data_path, output_path, time_window):
+        with open(goes_data_path, 'r', newline='') as file:
+            reader = csv.reader(file, delimiter=',')
+            counter_init_B = 0
+            counter_final_B = 0
+            counter_M_X = 0
+            dict_M_X = {}
+            dict_B = {}
+            # first, store the M-class flares in a dictionnary
+            [date, noaa] = [2, 1] # we assume this format
+            for event in reader:
+                if(re.match('(M|X)[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', str.join(',', event))):
+                    counter_M_X += 1
+                    event_date = drms.to_datetime(event[date])
+                    if(event_date in dict_M_X):
+                        dict_M_X[event_date] += [event[noaa]]
+                    else:
+                        dict_M_X[event_date] = [event[noaa]]
+            file.seek(0)
+            # Then analyze all B-class flares and store them
+            with open(output_path, 'w', newline='') as out:
+                writer = csv.writer(out, delimiter=',')
+                for event in reader:
+                    if(re.match('B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', str.join(',', event))):
+                        counter_init_B += 1
+                        event_date = drms.to_datetime(event[date])
+                        exclude_event = False
+                        for time_delta in range(-time_window, time_window+1):
+                            event_date_window  = event_date + timedelta(days=time_delta)
+                            if(event_date_window in dict_M_X
+                               and event[noaa] in dict_M_X[event_date_window]):
+                                #print('Event {} ignored because of M-X flare {}'.format(event,event_date_window))
+                                exclude_event = True
+                                break
+                            elif(event_date_window in dict_B 
+                                 and event[noaa] in dict_B[event_date_window]):
+                                #print('Event {} ignored because of B flare {}'.format(event, event_date_window))
+                                exclude_event = True
+                                break
+                        if(not exclude_event):
+                            writer.writerow(event)
+                            counter_final_B += 1
+                            if(event_date in dict_B):
+                                dict_B[event_date] += [event[noaa]]
+                            else:
+                                dict_B[event_date] = [event[noaa]]
+                    elif(not re.match('(B|C|M|X)[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', str.join(',', event))):
+                        writer.writerow(event)
+                print('Total number of M-X flares: {}'.format(counter_M_X))
+                print('Total number of B flares: {}'.format(counter_init_B))
+                print('Number of output B flares: {}'.format(counter_final_B))
+                        
+    
     # For all files found, counts the number of videos, frames and channels/frames
     # as well as the mean size and diff between max and min size for each video.
     @staticmethod
@@ -121,9 +181,6 @@ class Data_Downloader:
                                     nb_channels = db[vid_key][frame_key]['channels'].shape[2]
                                     avg_size += db[vid_key][frame_key]['channels'].shape[0:2]
                                     nb_frames += 1
-                                    if(max_size > min_size):
-                                        print('Vid {}, frame {} => {}'.format(vid_key, frame_key, db[vid_key][frame_key]['channels'].shape[0:2]))
-                            
                             results['nb_frames'] += [nb_frames]
                             results['avg_size'] += [avg_size/nb_frames]
                             results['min_max_size'] +=[max_size-min_size]

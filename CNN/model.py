@@ -150,7 +150,7 @@ class Model:
 
     def conv_layer(self, input_, filter_shape, name, padding='SAME', activation='relu', strides=[1,1,1,1]):
         with tf.variable_scope(name):
-            kernel = tf.Variable(tf.random_normal(filter_shape, mean=0.0, stddev=0.5, dtype=tf.float32), 'kernel')
+            kernel = tf.Variable(tf.random_normal(filter_shape, mean=1, stddev=0.5, dtype=tf.float32), 'kernel')
             biases = tf.Variable(tf.constant(0, shape=[filter_shape[-1]], dtype=tf.float32), 'biases')
             # convolve and add bias            
             conv = tf.nn.conv2d(input_, kernel, strides, padding)
@@ -169,7 +169,7 @@ class Model:
     
     def fc_layer(self, input_, nb_input, nb_output, name, activation='relu', dropout = True):
         with tf.variable_scope(name):
-            weights = tf.Variable(tf.random_normal([nb_input, nb_output], dtype=tf.float32), 'weights')
+            weights = tf.Variable(tf.random_normal([nb_input, nb_output], mean=1, stddev=0.5, dtype=tf.float32), 'weights')
             biases = tf.Variable(tf.constant(0, shape=[nb_output], dtype=tf.float32), 'biases')
             # mult and add bias
             fc = tf.matmul(input_, weights) + biases
