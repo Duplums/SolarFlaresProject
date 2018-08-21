@@ -530,8 +530,12 @@ class Data_Downloader:
                                         print('Memory usage > {}MB. Dumping...'.format(3*self.mem_limit))
                                         dumping = True
                                 nb_frame -= 1
-                            
-                            print('Video {} associated to event {} extracted ({} frames)'.format(vid_counter, event[peak], frame_counter))
+                            if(frame_counter == 0):
+                                del current_vid
+                                vid_counter -=1 
+                                print('No frame downloaded, video erased.')
+                            else:
+                                print('Video {} associated to event {} extracted ({} frames)'.format(vid_counter, event[peak], frame_counter))
 
                         except: 
                             print('Impossible to extract data for event {0} (nb {1})'.format(event[peak], counter))
@@ -569,4 +573,3 @@ downloader.download_jsoc_data(files_core_name = 'B_jsoc_data',
                            goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
                            hours_before_event = 24, sample_time = '@1h',
                            limit = None)
-
