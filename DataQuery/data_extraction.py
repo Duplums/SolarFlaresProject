@@ -5,6 +5,7 @@ from datetime import timedelta
 import drms, h5py, cv2, math
 import os, csv, traceback, re, glob, sys
 from scipy import stats
+sys.path.append('/home6/bdufumie/SolarFlaresProject')
 from CNN import utils
 import numpy as np
 
@@ -121,8 +122,8 @@ class Data_Downloader:
                                     nb_channels = db[vid_key][frame_key]['channels'].shape[2]
                                     avg_size += db[vid_key][frame_key]['channels'].shape[0:2]
                                     nb_frames += 1
-                                    if(max_size > min_size):
-                                        print('Vid {}, frame {} => {}'.format(vid_key, frame_key, db[vid_key][frame_key]['channels'].shape[0:2]))
+                            #if(nb_frames > 24):
+                            #    print(file+'-'+vid_key+' ('+ db[vid_key].attrs['peak_time']+')'+'=>'+str(nb_frames)+' frames')
                             
                             results['nb_frames'] += [nb_frames]
                             results['avg_size'] += [avg_size/nb_frames]
@@ -424,12 +425,11 @@ class Data_Downloader:
                         # Change the date format
                         peak_time = self._UTC2JSOC_time(str(peak_time))
                         start_time = self._UTC2JSOC_time(str(start_time))
+                        # Do the request to JSOC database
+                        query = '{}[{}-{}{}]'.format(jsoc_serie, start_time, peak_time, sample_time)
+                        if(len(self.ar_segs)==0): keys = client.query(query, key=self.ar_attrs)
+                        else: keys, segments = client.query(query, key=self.ar_attrs, seg=self.ar_segs)
                         try:
-                            # Do the request to JSOC database
-                            query = '{}[{}-{}{}]'.format(jsoc_serie, start_time, peak_time, sample_time)
-                            if(len(self.ar_segs)==0): keys = client.query(query, key=self.ar_attrs)
-                            else: keys, segments = client.query(query, key=self.ar_attrs, seg=self.ar_segs)
-                        
                             # Downloads the video of this solar flare and construct 
                             # the HDF5 file.
                             nb_frame = len(keys.NOAA_AR)-1
@@ -497,18 +497,17 @@ class Data_Downloader:
         return True
 
 
-main_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5'
-goes_data_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/GOES_dataset.csv'
+main_path = '/nobackup/bdufumie/SolarFlaresProject/Data/SF/'
+goes_data_path = '/home6/bdufumie/SolarFlaresProject/DataQuery/GOES_dataset_B.csv'
 goes_attrs = utils.config['SF']['goes_attrs']
 ar_attrs = utils.config['SF']['ar_attrs']
 ar_segs = utils.config['SF']['segs']
 
-#downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
-#downloader.download_jsoc_data(files_core_name = 'B_train_jsoc_data',
-#                           directory = 'train/B-class-flares',
-#                           goes_data_path =goes_data_path, 
-#                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
-#                           start_time = '2016-06-11',
-#                           hours_before_event = 72, sample_time = '@1h',
-#                           limit = 1000)
+downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
+downloader.download_jsoc_data(files_core_name = 'B_jsoc_data',
+                           directory = 'B-class-flares-clean',
+                           goes_data_path =goes_data_path, 
+                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
+                           hours_before_event = 24, sample_time = '@1h',
+                           limit = None)
 
