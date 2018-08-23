@@ -36,6 +36,7 @@ def train_model(data):
     learning_rate = config['learning_rate'] # initial learning rate
     epsilon = config['tolerance'] # useful for updating learning rate
     nb_classes = config['nb_classes']
+    loss_weights = config['loss_weights']
     num_epochs = config['num_epochs']
     checkpoint_iter = config['checkpoint_iter']
     model_name = config['model']
@@ -43,7 +44,7 @@ def train_model(data):
     G = tf.Graph()
     train_data_gen = data_gen.Data_Gen(data, config, G, max_pic_size=[3000,3000])
     
-    with G.as_default(), tf.device('/gpu:0'):
+    with G.as_default():
         
         dyn_learning_rate = tf.placeholder(dtype=tf.float32,
                                            shape=[],
@@ -63,10 +64,10 @@ def train_model(data):
         it_global = tf.Variable(tf.constant(0, shape=[], dtype=tf.int32), trainable=False)
         update_it_global = tf.assign_add(it_global, tf.shape(input_data)[0]) 
         if(model_name == 'VGG_16'):
-            training_model = model.Model('VGG_16', nb_classes, batch_norm=config['batch_norm'], dropout_prob=config['dropout_prob'])
+            training_model = model.Model('VGG_16', nb_classes, batch_norm=config['batch_norm'], dropout_prob=config['dropout_prob'], loss_weights=loss_weights)
             training_model.build_vgg16_like(input_data)
         elif(model_name == 'LSTM'):
-            training_model = model.Model('LSTM', nb_classes)
+            training_model = model.Model('LSTM', nb_classes, loss_weights=loss_weights)
             training_model.build_lstm(input_data, input_seq_length)
         
         training_model.construct_results(input_labels)
@@ -83,7 +84,7 @@ def train_model(data):
 
     # init and run training session
     print('Initializing training graph.')
-    sess = tf.Session(graph=G, config=tf.ConfigProto(log_device_placement=True, allow_soft_placement=True))
+    sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True))
     tf.train.start_queue_runners(sess=sess)
     sess.run(global_init)
     sess.run(local_init)
@@ -147,15 +148,15 @@ def train_model(data):
                         # computes the metrics
                         metrics_ = sess.run(metrics)
                         # updates the learning rate and the old_loss
-                        if(results[-1] % 1000 == 0 and results[-1] > 0):
-                            learning_rate /= 2
+                        #if(results[-1] % 1000 == 0 and results[-1] > 0):
+                        #    learning_rate /= 2
                         # plot the variables in TensorBoard
                         train_writer.add_summary(results[0], global_step=results[10])
                         # plot in console the metrics we want and hyperparameters
                         print('Epoch {}, Batch {}, step {}, accuracy : {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
                               metrics_[0], results[2], learning_rate))
                         # save the weigths
-                        if(results[10] % checkpoint_iter == 0):
+                        if(step % 1000  == 0):
                             saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), it_global)
                             print('Checkpoint saved')
                         step += 1

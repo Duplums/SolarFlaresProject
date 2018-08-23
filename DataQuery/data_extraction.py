@@ -466,7 +466,7 @@ class Data_Downloader:
             reader = csv.reader(file, delimiter=',')
             client = drms.Client()
             mem = 0 # Set a counter for the current cache memory (in bytes) used by videos
-            part_counter = 54
+            part_counter = 0
             vid_counter = 0
             counter = 0
             current_save_file = h5py.File('{}_part_{}.hdf5'.format(files_core_name, part_counter), 'w') 
@@ -517,7 +517,7 @@ class Data_Downloader:
                                     seg_counter = 0
                                     for seg in self.ar_segs:
                                         url = 'http://jsoc.stanford.edu' + segments[seg][nb_frame]
-                                        data = np.array(fits.getdata(url), dtype=np.float32)
+                                        data = np.array(fits.getdata(url, cache=False), dtype=np.float32)
                                         if(data_shape is None):
                                             data_shape = data.shape
                                             frame = np.zeros(data_shape + (len(self.ar_segs),), dtype=np.float32)
@@ -531,8 +531,8 @@ class Data_Downloader:
                                         dumping = True
                                 nb_frame -= 1
                             if(frame_counter == 0):
-                                del current_vid
-                                vid_counter -=1 
+                            #    del current_save_file['video{}'.format(vid_counter)]
+                            #    vid_counter -=1 
                                 print('No frame downloaded, video erased.')
                             else:
                                 print('Video {} associated to event {} extracted ({} frames)'.format(vid_counter, event[peak], frame_counter))
@@ -566,10 +566,10 @@ goes_attrs = utils.config['SF']['goes_attrs']
 ar_attrs = utils.config['SF']['ar_attrs']
 ar_segs = utils.config['SF']['segs']
 
-downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
-downloader.download_jsoc_data(files_core_name = 'B_jsoc_data',
-                           directory = 'B-class-flares-clean',
-                           goes_data_path =goes_data_path, 
-                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
-                           hours_before_event = 24, sample_time = '@1h',
-                           limit = None)
+#downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
+#downloader.download_jsoc_data(files_core_name = 'B_jsoc_data',
+#                           directory = 'B-class-flares-clean',
+#                           goes_data_path =goes_data_path, 
+#                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
+#                           hours_before_event = 24, sample_time = '@1h',
+#                           limit = None)
