@@ -96,6 +96,8 @@ def train_model(data):
         for epoch in range(num_epochs):
             # re-init the learning rate at the beginning of each epoch
             learning_rate = config['learning_rate']
+            # re-init paths_to_file
+            train_data_gen.init_paths_to_file()
             # training loop 
             features, labels, metadata = train_data_gen.gen_batch_dataset(save_extracted_data=False, 
                                                                              retrieve_data=False,
