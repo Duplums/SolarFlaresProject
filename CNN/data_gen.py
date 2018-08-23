@@ -17,6 +17,7 @@ import h5py as h5
 class Data_Gen:
     
     graph = None
+    main_path = None
     paths_to_file = None # array of paths where we can find the data
     output_features_dir = None 
     output_features = None
@@ -44,7 +45,7 @@ class Data_Gen:
     def __init__(self, data_name, config, graph, tf_device = '/cpu:0',
                  training=True, max_pic_size=None):
         assert data_name in {'SF', 'SF_LSTM', 'MNIST', 'CIFAR-10', 'IMG_NET'}
-        
+ 
         self.paths_to_file = []
         self.size_of_files = []
         self.memory_size =  config['batch_memsize']
@@ -76,9 +77,9 @@ class Data_Gen:
                 self.subsampling = config['subsampling']
 
         if(training):
-            paths = config['training_paths']
+            self.main_path = config['training_paths']
         else:   
-            paths = config['testing_paths']
+            self.main_path = config['testing_paths']
 
         if(data_name in {'MNIST', 'CIFAR-10', 'IMG_NET'}):
             print('Warning: no preprocessing for this data base. We assert that the HDF5 files are organized as follows:\n')
@@ -93,7 +94,18 @@ class Data_Gen:
             print('\t\t meta(i) : labels(i) (i in [1,N])\n')
         
         # First checks
-        for path in paths:
+        self.init_paths_to_file()
+        
+        if(self.max_pic_size is None and data_name == 'SF'):
+            print('Computing the maximum of picture size...')
+            self.max_pic_size = self.get_max_size()
+        if(self.max_pic_size is None or max_pic_size[0] < 0 or self.max_pic_size[1] < 0):
+            print('Warning: maximum size unknown ({}), could lead to error'.format(self.max_pic_size))
+        else:
+            print('Maximum size found : {}'.format(self.max_pic_size))
+    
+    def init_paths_to_file(self):
+         for path in self.main_path:
             if os.path.exists(path):
                 for file in os.listdir(path):   
                     path_to_file = os.path.join(path, file)
@@ -108,14 +120,6 @@ class Data_Gen:
                         print('Directory \'{}\' ignored.'.format(path_to_file))
             else:
                 print('Path {} does not exist. Ignored'.format(path))
-        
-        if(self.max_pic_size is None and data_name == 'SF'):
-            print('Computing the maximum of picture size...')
-            self.max_pic_size = self.get_max_size()
-        if(self.max_pic_size is None or max_pic_size[0] < 0 or self.max_pic_size[1] < 0):
-            print('Warning: maximum size unknown ({}), could lead to error'.format(self.max_pic_size))
-        else:
-            print('Maximum size found : {}'.format(self.max_pic_size))
     
      # Returns the maximum size of pictures found in all files
     def get_max_size(self):
@@ -286,7 +290,9 @@ class Data_Gen:
     # OUTPUT : 2 lists that contains pictures of possibly various sizes and 
     # the labels associated. NOTE: if vid_infos is true, another list containing
     # video information relatively to the picture is added. Each meta data is 
-    # formatted as : '{name_file}|{name_vid}|{frame_shape}|{frame_nb}'
+    # formatted as : '{name_file}|{name_vid}|{active region size}|{frame_nb}'
+    # !! CAREFUL: we assume that 'SIZE_ACR' is an attribute associated to EVERY frame
+    # in the data base !! 
     def _extract_data(self, files_to_extract, saving = False, retrieve = False, 
                       vid_infos = False):
         features = []
@@ -344,7 +350,7 @@ class Data_Gen:
                                                 frame_tensor = self._extract_frame(db[vid_key][frame_key]['channels'], db[vid_key][frame_key].attrs['SEGS'])                              
                                                 curr_features += [frame_tensor]
                                                 curr_labels += [label]
-                                                curr_meta += [meta+str(frame_tensor.shape[:2])+'|'+str(self._to_frame_num(frame_key))]
+                                                curr_meta += [meta+str(db[vid_key][frame_key].attrs['SIZE_ACR'])+'|'+str(self._to_frame_num(frame_key))]
                                 print('Data extracted from file {}.'.format(file_path))
                                 if(saving):
                                     try:
@@ -437,7 +443,8 @@ class Data_Gen:
         return (features, labels)
     
     
-    # We assume that each metadata are formatted as : '{name_file}|{name_vid}|{frame_shape}|{name_frame}'
+    # We assume that each metadata are formatted as : '{name_file}|{name_vid}|{active region size}|{frame_nb}'
+    # The active region size is added manually at the beginning of every features.
     def add_output_features(self, features, labels, metadata):
         assert len(features) == len(labels) == len(metadata)
         
@@ -448,9 +455,10 @@ class Data_Gen:
                 if(len(meta_list) == 4):
                     feature_key = meta_list[0]+'_'+meta_list[1]
                     frame_nb = int(meta_list[3])
+                    size_acr = int(meta_list[2])
                     if(feature_key in self.output_features):
                         if(frame_nb not in self.output_features[feature_key]):
-                            self.output_features[feature_key].update({frame_nb: features[k]})
+                            self.output_features[feature_key].update({frame_nb: [size_acr, features[k]]})
                         else:
                             print('Warning: frame {} already exists. Ignored'.format(frame_nb))
                     else:
