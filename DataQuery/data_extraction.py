@@ -4,6 +4,7 @@ import sunpy.instr.goes as goes_db
 from datetime import timedelta
 import drms, h5py, cv2, math
 import os, csv, traceback, re, glob, sys
+import matplotlib.pyplot as plt
 from scipy import stats
 sys.path.append('/home6/bdufumie/SolarFlaresProject')
 from CNN import utils
@@ -232,7 +233,7 @@ class Data_Downloader:
                 out.write('File {}:\n'.format(file))
                 with h5py.File(file, 'r') as db:
                     for vid_key in db.keys():
-                        out.write('\t\'{}\' => {}\n'.format(vid_key, db[vid_key].attrs['peak_time']))
+                        out.write('\t\'{}\' => {} ({}-flare)\n'.format(vid_key, db[vid_key].attrs['peak_time'], db[vid_key].attrs['event_class']))
             except:                
                 print('Impossible to display peak time for file {}'.format(file))
                 print(traceback.format_exc())
@@ -243,7 +244,7 @@ class Data_Downloader:
     
     # Display a video from .hdf5 file
     @staticmethod
-    def display_vid(file, vid):
+    def display_vid(file, vid, save_pictures=False):
         try:
             with h5py.File(file, 'r') as db:
                 video = db[vid]
@@ -257,11 +258,15 @@ class Data_Downloader:
                     for frame_key in frame_keys:
                         channel_count = 0
                         for channel in channels:
-                            cv2.namedWindow(channel.decode(), cv2.WINDOW_NORMAL)
-                            cv2.resizeWindow(channel.decode(), height, width)
-                            cv2.imshow(channel.decode(), video[frame_key]['channels'][:,:,channel_count])
+                            if(save_pictures):
+                                plt.imsave('{}_{}'.format(frame_key, channel) ,arr=video[frame_key]['channels'][:,:,channel_count], cmap='gray')
+                            else:
+                                cv2.namedWindow(channel.decode(), cv2.WINDOW_NORMAL)
+                                cv2.resizeWindow(channel.decode(), height, width)
+                                cv2.imshow(channel.decode(), video[frame_key]['channels'][:,:,channel_count])
                             channel_count += 1
-                        cv2.waitKey(0)
+                        if(not save_pictures):
+                            cv2.waitKey(0)
                     cv2.destroyAllWindows()
         except:
             print('Impossible to display the video.')
