@@ -5,6 +5,7 @@ from datetime import timedelta
 import drms, h5py, cv2, math
 import os, csv, traceback, re, glob, sys
 import matplotlib.pyplot as plt
+import skimage.transform as sk
 from scipy import stats
 sys.path.append('/home6/bdufumie/SolarFlaresProject')
 from CNN import utils
@@ -188,8 +189,11 @@ class Data_Downloader:
                                     if(not vid_init):
                                         first_frame = frame_key
                                         vid_init = True
-                                    if(frame_key == list(db[vid_key].keys())[-1]):
+                                    # !!TO BE CHANGED (ASSUME THAT FRAME_KEY == FRAME[0-..]) !!
+                                    if(frame_key == sorted(list(db[vid_key].keys()), key=lambda frame_key : float(frame_key[5:]))[-1]):
                                         last_frame = frame_key
+                                        print(last_frame)
+                                        print(list(db[vid_key]))
                                     max_size = max(max_size, np.prod(db[vid_key][frame_key]['channels'].shape[0:2]))
                                     min_size = min(min_size, np.prod(db[vid_key][frame_key]['channels'].shape[0:2]))
                                     nb_channels = db[vid_key][frame_key]['channels'].shape[2]
@@ -198,8 +202,8 @@ class Data_Downloader:
                             if(nb_frames > nb_min_frame_for_rms):
                                 if(first_frame is not None and last_frame is not None):
                                     for c in range(nb_channels):
-                                        l1_err += np.sum(np.abs(cv2.resize(db[vid_key][first_frame]['channels'][:,:,c], 
-                                                             db[vid_key][last_frame]['channels'].shape[:2]) - db[vid_key][last_frame]['channels'][:,:,c]))
+                                        l1_err += np.sum(np.abs(sk.resize(db[vid_key][first_frame]['channels'][:,:,c], 
+                                                             db[vid_key][last_frame]['channels'].shape[:2], preserve_range=True) - db[vid_key][last_frame]['channels'][:,:,c]))
                                     results['rms'] += [l1_err]
                                 else:
                                     print('Unable to find first and last frame in file {}, video {}'.format(file, vid_key))
@@ -212,9 +216,10 @@ class Data_Downloader:
                             results['min_max_size'] +=[max_size-min_size]
                             results['nb_channels'] += [nb_channels]
                             glob_counter += 1
-            except:                
+            except TypeError:                
                 print('Impossible to get descriptors for file {}'.format(file))
                 print(traceback.format_exc())
+                break
         out.write('NB OF VIDEOS : {}\n'.format(glob_counter))
         out.write('NB OF FRAMES : {}\n'.format(sum(results['nb_frames'])))
         out.write('NB OF FRAMES / VIDEO:\n')
