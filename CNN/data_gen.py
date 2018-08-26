@@ -9,6 +9,7 @@ a graph is needed.
 import os, re, pickle, traceback, math, drms
 from collections import OrderedDict
 import matplotlib.pyplot as plt
+import skimage.transform as sk
 import tensorflow as tf
 import numpy as np
 import h5py as h5
@@ -42,7 +43,7 @@ class Data_Gen:
     seq_length_iterator = None
     training_mode = None
     
-    def __init__(self, data_name, config, graph, tf_device = '/cpu:0',
+    def __init__(self, data_name, config, graph = None, tf_device = '/cpu:0',
                  training=True, max_pic_size=None):
         assert data_name in {'SF', 'SF_LSTM', 'MNIST', 'CIFAR-10', 'IMG_NET'}
  
@@ -149,27 +150,36 @@ class Data_Gen:
      # Takes a video and a list of scalars as input and returns the corresponding
     # time series.
     def _extract_timeseries_from_video(self, vid, scalars):
-        res = np.zeros((len(scalars), len(vid)), dtype=np.float32)
-        sample_time = np.zeros(len(vid), dtype=np.float32)
+        res = np.zeros(len(scalars), dtype=np.float32)
+        sample_time = []
         tf = drms.to_datetime(vid.attrs['end_time'])
-        i = 0
-        j = 0
-        for frame_key in vid.keys():
-            ti = drms.to_datetime(vid[frame_key].attrs['T_REC'])
-            sample_time[j] = (tf - ti).total_seconds()/60
-            for scalar in scalars:
-                res[i,j] = vid[frame_key].attrs[scalar]
-                i += 1
-            j += 1
-            i = 0
-        return res, sample_time
+        first_frame = None
+        for frame_key in sorted(list(vid.keys()), key=lambda frame_key : float(frame_key[5:])):
+            if('channels' in vid[frame_key].keys() and
+               len(vid[frame_key]['channels'].shape) == 3):
+                ti = drms.to_datetime(vid[frame_key].attrs['T_REC'])
+                sample_time += [(tf - ti).total_seconds()/60]
+                if(first_frame is None):
+                    first_frame = Data_Gen._check_nan(vid[frame_key]['channels'])
+                i = 0
+                for scalar in scalars:
+                    if(scalar == 'RMS'):
+                        for c in range(first_frame.shape[2]):
+                            this_frame = Data_Gen._check_nan(vid[frame_key]['channels'])
+                            l1_err += np.sum(np.abs(sk.resize(this_frame[:,:,c], first_frame.shape[:2], preserve_range=True)-first_frame[:,:,c]))
+                        res[i] += [l1_err/np.product(first_frame.shape)]
+                    else:
+                        res[i] += [vid[frame_key].attrs[scalar]]
+                    i += 1
+            
+        return np.array(res), np.array(sample_time)
     
     # Extracts some scalars from video that evolve according to the time (ex: SIZE of a frame).
     # The scalar must be in the frame attributes of a video. These time series are concatenated
     # in one list for every videos. 'tstart' and 'tend' are used to know when the time series
     # begin and end (from an event, time reversed). If values are missing (<5% by default), 
     # they are interpolated.
-    def extract_timeseries(self, scalars, tstart, tend, loss=0.05):
+    def extract_timeseries(self, paths_to_file = self.paths_to_file, scalars, tstart, tend, loss=0.05):
         if(self.database_name != 'SF'):
             print('The data base must be from JSOC.')
             return None
@@ -180,7 +190,7 @@ class Data_Gen:
         res = []
         print('{} frames are considered from {}min before a solar eruption to {}min.'.format(nb_frames, tstart, tend))
         print('INFO: a linear interpolation is used to reconstruct the time series.')
-        for file_path in self.paths_to_file:
+        for file_path in paths_to_file:
             if(os.path.isfile(file_path)):
                 try:
                     with h5.File(file_path, 'r') as db:
@@ -205,7 +215,7 @@ class Data_Gen:
                 print('File {} does not exist. Ignored'.format(file_path))
 
             return np.array(res, dtype=np.float32), sample_time
-        
+    
     # Assigns a label (int number) associated to a flare class.
     # This label depends of the number of classes.
     def _label(self, flare_class):

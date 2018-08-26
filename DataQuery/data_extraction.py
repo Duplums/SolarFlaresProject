@@ -245,7 +245,7 @@ class Data_Downloader:
                             if(nb_frames > nb_min_frame_for_rms):
                                 if(first_frame is not None and last_frame is not None):
                                     for c in range(nb_channels):
-                                        l1_err += np.sum(np.abs(sk.resize(first_frame, last_frame.shape[:2], preserve_range=True)- last_frame))
+                                        l1_err += np.sum(np.abs(sk.resize(first_frame[:,:,c], last_frame.shape[:2], preserve_range=True)- last_frame[:,:,c]))
                                     results['rms'] += [l1_err]
                                 else:
                                     print('Unable to find first and last frame in file {}, video {}'.format(file, vid_key))
