@@ -141,7 +141,53 @@ class Data_Downloader:
                 print('Total number of M-X flares: {}'.format(counter_M_X))
                 print('Total number of B flares: {}'.format(counter_init_B))
                 print('Number of output B flares: {}'.format(counter_final_B))
-                        
+                   # check 'NaN' in a frame that can have one or multiple channels. Returns
+    # a clean frame. INPUT: np array with shape (h, w, c)
+    @staticmethod
+    def _check_nan(frame):
+        shape = frame.shape
+        new_frame = None
+        if(len(shape) != 3):
+            print('Shape of frame must be (h, w, c) (got {})'.format(shape))
+            raise        
+        for c in range(shape[2]):
+            pic = frame[:,:,c]
+            if(np.any(np.isnan(pic))):
+                print('Warning: NaN found in a frame. Trying to erase them...')
+                where_is_nan = np.argwhere(np.isnan(pic))
+                nan_up_left_corner = (min(where_is_nan[:,0]), min(where_is_nan[:,1]))
+                nan_down_right_corner = (max(where_is_nan[:,0]), max(where_is_nan[:,1]))
+                # Select only the biggest rectangle that does not contain 'NaN'
+                pic_shape = pic.shape
+                right_split_pic_width = nan_up_left_corner[1]
+                left_split_pic_width = pic_shape[1] - nan_down_right_corner[1]
+                if(right_split_pic_width > left_split_pic_width):
+                    # conserve only the right picture's part
+                    pic = pic[:, 0:nan_up_left_corner[1]]
+                else:
+                    # otherwise, conserve the other part
+                    pic = pic[:, nan_down_right_corner[1]+1:]
+                pic_reshape = pic.shape
+                if(np.any(np.isnan(pic))):
+                    print('Impossible to erase NaN.')
+                else:
+                    print('NaN erased. Reshape operation: {} --> {}'.format(pic_shape, pic_reshape))
+            if(new_frame is None):
+                new_frame = np.zeros(pic.shape+(shape[2],), dtype=np.float32)
+            try:
+                new_frame[:,:,c] = pic
+            except:
+                print('All channels are no coherents')
+                print('Previous channel:')
+                plt.imshow(frame[:,:,c-1])
+                plt.show()
+                print('New channel:')
+                plt.imshow(frame[:,:,c])
+                plt.show()
+                print(traceback.format_exc())
+                raise
+        return new_frame
+             
     
     # For all files found, counts the number of videos, frames and channels/frames
     # as well as the mean size and diff between max and min size for each video.
@@ -187,13 +233,12 @@ class Data_Downloader:
                                 if('channels' in db[vid_key][frame_key].keys() and
                                     len(db[vid_key][frame_key]['channels'].shape) == 3):
                                     if(not vid_init):
-                                        first_frame = frame_key
+                                        first_frame = Data_Downloader._check_nan(db[vid_key][frame_key]['channels'])
                                         vid_init = True
                                     # !!TO BE CHANGED (ASSUME THAT FRAME_KEY == FRAME[0-..]) !!
-                                    if(frame_key == sorted(list(db[vid_key].keys()), key=lambda frame_key : float(frame_key[5:]))[-1]):
-                                        last_frame = frame_key
-                                        print(last_frame)
-                                        print(list(db[vid_key]))
+                                    if(frame_key == sorted(list(db[vid_key].keys()), 
+                                                           key=lambda frame_key : float(frame_key[5:]))[-1]):
+                                        last_frame = Data_Downloader._check_nan(db[vid_key][frame_key]['channels'])
                                     max_size = max(max_size, np.prod(db[vid_key][frame_key]['channels'].shape[0:2]))
                                     min_size = min(min_size, np.prod(db[vid_key][frame_key]['channels'].shape[0:2]))
                                     nb_channels = db[vid_key][frame_key]['channels'].shape[2]
@@ -202,8 +247,7 @@ class Data_Downloader:
                             if(nb_frames > nb_min_frame_for_rms):
                                 if(first_frame is not None and last_frame is not None):
                                     for c in range(nb_channels):
-                                        l1_err += np.sum(np.abs(sk.resize(db[vid_key][first_frame]['channels'][:,:,c], 
-                                                             db[vid_key][last_frame]['channels'].shape[:2], preserve_range=True) - db[vid_key][last_frame]['channels'][:,:,c]))
+                                        l1_err += np.sum(np.abs(sk.resize(first_frame[:,:,c], last_frame.shape[:2], preserve_range=True)- last_frame[:,:,c]))
                                     results['rms'] += [l1_err]
                                 else:
                                     print('Unable to find first and last frame in file {}, video {}'.format(file, vid_key))
