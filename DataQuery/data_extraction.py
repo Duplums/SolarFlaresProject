@@ -144,8 +144,10 @@ class Data_Downloader:
     
     # For all files found, counts the number of videos, frames and channels/frames
     # as well as the mean size and diff between max and min size for each video.
+    # Gives also the statistics about the l1-error (RMS) between the first and last
+    # frame in each video (with more than 'nb_min_frame_for_rms' frame).
     @staticmethod
-    def check_statistics(path_to_files, out = None):
+    def check_statistics(path_to_files, out = None, nb_min_frame_for_rms=10):
         if(os.path.isdir(path_to_files)):
             files = sorted(glob.glob(os.path.join(path_to_files, '*')))
         elif(os.path.isfile(path_to_files)):
@@ -163,7 +165,8 @@ class Data_Downloader:
             except:
                 print('Impossible to redirect output to {}. Redirecting to stdout instead'.format(out))
                 out = sys.stdout
-        results = {'nb_frames' : [], 'avg_size': [], 'nb_channels' : [], 'min_max_size': []}
+        results = {'nb_frames' : [], 'avg_size': [], 'nb_channels' : [], 
+                   'min_max_size': [], 'rms':[]}
         glob_counter= 0
         for file in files:
             try:
@@ -175,14 +178,33 @@ class Data_Downloader:
                             avg_size = np.array([0, 0])
                             nb_channels = 0
                             nb_frames = 0
+                            l1_err = 0
+                            vid_init = False
+                            first_frame = None
+                            last_frame= None
                             for frame_key in db[vid_key].keys():
                                 if('channels' in db[vid_key][frame_key].keys() and
                                     len(db[vid_key][frame_key]['channels'].shape) == 3):
+                                    if(not vid_init):
+                                        first_frame = frame_key
+                                        vid_init = True
+                                    if(frame_key == list(db[vid_key].keys())[-1]):
+                                        last_frame = frame_key
                                     max_size = max(max_size, np.prod(db[vid_key][frame_key]['channels'].shape[0:2]))
                                     min_size = min(min_size, np.prod(db[vid_key][frame_key]['channels'].shape[0:2]))
                                     nb_channels = db[vid_key][frame_key]['channels'].shape[2]
                                     avg_size += db[vid_key][frame_key]['channels'].shape[0:2]
                                     nb_frames += 1
+                            if(nb_frames > nb_min_frame_for_rms):
+                                if(first_frame is not None and last_frame is not None):
+                                    for c in range(nb_channels):
+                                        l1_err += np.sum(np.abs(cv2.resize(db[vid_key][first_frame]['channels'][:,:,c], 
+                                                             db[vid_key][last_frame]['channels'].shape[:2]) - db[vid_key][last_frame]['channels'][:,:,c]))
+                                    results['rms'] += [l1_err]
+                                else:
+                                    print('Unable to find first and last frame in file {}, video {}'.format(file, vid_key))
+                                
+                                
                             #if(nb_frames > 24):
                             #    print(file+'-'+vid_key+' ('+ db[vid_key].attrs['peak_time']+')'+'=>'+str(nb_frames)+' frames')
                             results['nb_frames'] += [nb_frames]
@@ -203,6 +225,8 @@ class Data_Downloader:
         out.write('\t'+str(stats.describe(results['min_max_size'])))
         out.write('\nNB OF CHANNELS:\n')
         out.write('\t'+str(stats.describe(results['nb_channels'])))
+        out.write('\nRMS:\n')
+        out.write('\t'+str(stats.describe(results['rms'])))
         if(close_flag):
             out.close()
     
@@ -271,7 +295,7 @@ class Data_Downloader:
         except:
             print('Impossible to display the video.')
             print(traceback.format_exc())
-                    
+                       
     # Aims to check the integrity of the file 'hdf5_file' according to the 
     # format defined previously. If correct_file is True, then:
     #   * frames with no channels are erased.
