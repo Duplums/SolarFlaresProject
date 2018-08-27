@@ -151,7 +151,7 @@ class Data_Gen:
     # time series.
     @staticmethod
     def _extract_timeseries_from_video(vid, scalars):
-        res = np.zeros(len(scalars), dtype=np.float32)
+        res = [[] for k in range(len(scalars))]
         sample_time = []
         tf = drms.to_datetime(vid.attrs['end_time'])
         first_frame = None
@@ -188,7 +188,7 @@ class Data_Gen:
         sample_time = np.linspace(tstart, tend, nb_frames)
         res = []
         print('{} frames are considered from {}min before a solar eruption to {}min.'.format(nb_frames, tstart, tend))
-        if(os.path.isdir(paths_to_file)):
+        if(type(paths_to_file) is not list and os.path.isdir(paths_to_file)):
             print('Path to a directory. All the files inside are scanned')
             path = paths_to_file
             paths_to_file = []
@@ -202,6 +202,7 @@ class Data_Gen:
                     with h5.File(file_path, 'r') as db:
                         for vid_key in db.keys():
                             vid_time_series, vid_sample_time = Data_Gen._extract_timeseries_from_video(db[vid_key], scalars)
+                            print(vid_sample_time)
                             print(vid_time_series)
                             i_start = np.argmin(abs(sample_time - tstart))
                             i_end = np.argmin(abs(sample_time - tend))
