@@ -1,20 +1,21 @@
 
             # CONFIG FOR SOLAR FLARES DATA
 config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587] 
-                  'batch_memsize': 2048, # xMB / global batch
-                  'num_threads' : 8,
+                  'batch_memsize': 16384, # xMB / global batch
+                  'num_threads' : 48,
                   'model': 'VGG_16',
                   'checkpoint': '/nobackup/bdufumie/SolarFlaresProject/Checkpoints/SF',
                   'tensorboard': '/nobackup/bdufumie/SolarFlaresProject/Tensorboard/SF',
                   'input_features_dir' : '/nobackup/bdufumie/SolarFlaresProject/Dataset/SF',
                   'output_features_dir': '/nobackup/bdufumie/SolarFlaresProject/Data/SF_LSTM/train',
                   'learning_rate': 0.01,
+                  'loss_weights': [1, 1.5],
                   'tolerance': 0.001,
                   'batch_norm': True,
                   'dropout_prob': 0.3,
                   'nb_classes': 2,
-                  'batch_size': 2, # nb pictures / local batch,
-                  'prefetch_buffer_size': 2, 
+                  'batch_size': 16, # nb pictures / local batch,
+                  'prefetch_buffer_size': 16, 
                   'num_epochs': 10, # nb global batchs considered 
                   'checkpoint_iter': 50, # save every 'checkpoint_iter' global iteration
                   'ar_attrs' : ['T_REC', 'NOAA_AR', 'HARPNUM', 'LAT_FWT', 'LON_FWT',
@@ -23,7 +24,7 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                   'segs': ['Bp', 'Br', 'Bt'],
                   'goes_attrs' : ['event_class', 'noaa_active_region', 'event_date', 'start_time', 'end_time', 'peak_time'],
                   'subsampling' : 1,
-                  'resize_method': 'NONE',
+                  'resize_method': 'LIN_RESIZING',
                   'time_step': 60, # time step used in each video
                   'training_paths': ['/nobackup/bdufumie/SolarFlaresProject/Data/SF/train/B-class-flares', 
                                      '/nobackup/bdufumie/SolarFlaresProject/Data/SF/train/M-X-class-flares'],
@@ -31,19 +32,20 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                                      '/nobackup/bdufumie/SolarFlaresProject/Data/SF/test/M-X-class-flares'],              
                   },
             # CONFIG FOR SOLAR FLARE FEATURES EXTRACTED FROM THE CNN
-            'SF_LSTM': {'data_dims': [None,  1024], # MAX_T_STEP x N_INPUT
+            'SF_LSTM': {'data_dims': [None,  1025], # MAX_T_STEP x N_INPUT
                   'batch_memsize': 1024, # xMB / global batch
                   'num_threads' : 8,
                   'model': 'LSTM',
                   'checkpoint': '/nobackup/bdufumie/SolarFlaresProject/Checkpoints/SF_LSTM',
                   'tensorboard': '/nobackup/bdufumie/SolarFlaresProject/Tensorboard/SF_LSTM',
                   'learning_rate': 0.01,
+                  'loss_weights': [1, 2],
                   'tolerance': 0.001,
                   'nb_classes': 2,
-                  'batch_size': 256, # nb sequences / local batch
-                  'prefetch_buffer_size': 2, 
+                  'batch_size': 40000, # nb sequences / local batch
+                  'prefetch_buffer_size': 40000, 
                   'num_epochs': 15, # nb global batchs considered 
-                  'checkpoint_iter': 50, # save every 'checkpoint_iter' global iteration                
+                  'checkpoint_iter': 20000, # save every 'checkpoint_iter' global iteration                
                   'time_step': 60, # time step used in each video
                   'training_paths': ['/nobackup/bdufumie/SolarFlaresProject/Data/SF_LSTM/train'],
                   'testing_paths': ['/nobackup/bdufumie/SolarFlaresProject/Data/SF_LSTM/test'],              
@@ -56,6 +58,7 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                       'checkpoint': '/nobackup/bdufumie/SolarFlaresProject/Checkpoints/MNIST',
                       'tensorboard': '/nobackup/bdufumie/SolarFlaresProject/Tensorboard/MNIST',
                       'learning_rate': 0.01,
+                      'loss_weights': 10*[1],
                       'tolerance': 0.01,
                       'batch_norm': True,
                       'dropout_prob': 0.3,
@@ -76,6 +79,7 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                       'checkpoint': '/nobackup/bdufumie/SolarFlaresProject/Checkpoints/CIFAR10',
                       'tensorboard': '/nobackup/bdufumie/SolarFlaresProject/Tensorboard/CIFAR10',
                       'learning_rate': 0.01,
+                      'loss_weights': 10*[1],
                       'tolerance': 0.001,
                       'batch_norm': True,
                       'dropout_prob': 0.3,
