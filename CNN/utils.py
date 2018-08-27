@@ -1,6 +1,6 @@
 
             # CONFIG FOR SOLAR FLARES DATA
-config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587] 
+config = { 'SF': {'data_dims': [256, 512, 3], # MAX DIM on 7/20 : [2860, 2587] 
                   'batch_memsize': 2048, # xMB / global batch
                   'num_threads' : 8,
                   'model': 'VGG_16',
@@ -16,14 +16,14 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                   'batch_size': 2, # nb pictures / local batch,
                   'prefetch_buffer_size': 2, 
                   'num_epochs': 10, # nb global batchs considered 
-                  'checkpoint_iter': 50, # save every 'checkpoint_iter' global iteration
+                  'checkpoint_iter': 100, # save every 'checkpoint_iter' global iteration
                   'ar_attrs' : ['T_REC', 'NOAA_AR', 'HARPNUM', 'LAT_FWT', 'LON_FWT',
                                 'SIZE', 'SIZE_ACR', 'NACR', 'NPIX', 'LAT_MIN', 'LAT_MAX',
                                 'LON_MIN', 'LON_MAX'],
                   'segs': ['Bp', 'Br', 'Bt'],
                   'goes_attrs' : ['event_class', 'noaa_active_region', 'event_date', 'start_time', 'end_time', 'peak_time'],
                   'subsampling' : 1,
-                  'resize_method': 'NONE',
+                  'resize_method': 'LIN_RESIZING',
                   'time_step': 60, # time step used in each video
                   'training_paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/train/B-class-flares', 
                                      '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/train/M-X-class-flares'],
