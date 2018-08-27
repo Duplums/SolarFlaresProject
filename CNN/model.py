@@ -8,16 +8,18 @@ class Model:
     training_mode = None
     dropout_prob = None
     batch_norm = None
-    
+    loss_weights = None
     
     def __init__(self, name = 'neural_network',\
                  nb_classes = 2, training_mode = True,\
-                 batch_norm = True, dropout_prob = 0.2):
+                 batch_norm = True, dropout_prob = 0.2,\
+                 loss_weights = [1, 1]):
         self.name = name
         self.nb_classes = nb_classes
         self.training_mode = training_mode
         self.dropout_prob = dropout_prob
         self.batch_norm = batch_norm
+        self.loss_weights = loss_weights
     
     #                 GRAPH CONSTRUCTION                        #
     #############################################################
@@ -102,6 +104,8 @@ class Model:
             self.logits = self.fc_layer(self.output, 32, self.nb_classes, 'logits', activation=None, dropout=False)
 
             self.weights_summary(tf.get_variable('conv1_1/kernel',shape=[3,3,nb_channels,64]), 'first_conv_weights')
+            #self.weights_summary(tf.get_variable('conv5_3/kernel',shape=[3,3,512,512]), 'last_conv_weights')
+            #self.weights_summary(self.dense2, '1024_fc_layer')
             self.weights_summary(self.output, 'last_fc_layer')
             #self.prob_summary(nb_pics)
             return self.output
@@ -203,7 +207,7 @@ class Model:
             # Results
             self.prob = tf.nn.softmax(self.logits)
             self.pred = tf.argmax(self.prob, axis=1)
-            self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(labels, self.nb_classes), self.logits)
+            self.loss = tf.losses.softmax_cross_entropy(tf.multiply(tf.one_hot(labels, self.nb_classes), self.loss_weights), self.logits)
             # Define our metrics
             self.accuracy, self.accuracy_up = tf.metrics.accuracy(labels, self.pred, name="accuracy")
             self.precision, self.precision_up = tf.metrics.precision(labels, self.pred, name="precision")

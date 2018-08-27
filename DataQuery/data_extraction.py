@@ -4,7 +4,10 @@ import sunpy.instr.goes as goes_db
 from datetime import timedelta
 import drms, h5py, cv2, math
 import os, csv, traceback, re, glob, sys
+import matplotlib.pyplot as plt
+import skimage.transform as sk
 from scipy import stats
+sys.path.append('/home6/bdufumie/SolarFlaresProject')
 from CNN import utils
 import numpy as np
 
@@ -138,12 +141,60 @@ class Data_Downloader:
                 print('Total number of M-X flares: {}'.format(counter_M_X))
                 print('Total number of B flares: {}'.format(counter_init_B))
                 print('Number of output B flares: {}'.format(counter_final_B))
-                        
+                   # check 'NaN' in a frame that can have one or multiple channels. Returns
+    # a clean frame. INPUT: np array with shape (h, w, c)
+    @staticmethod
+    def _check_nan(frame):
+        shape = frame.shape
+        new_frame = None
+        if(len(shape) != 3):
+            print('Shape of frame must be (h, w, c) (got {})'.format(shape))
+            raise        
+        for c in range(shape[2]):
+            pic = frame[:,:,c]
+            if(np.any(np.isnan(pic))):
+                print('Warning: NaN found in a frame. Trying to erase them...')
+                where_is_nan = np.argwhere(np.isnan(pic))
+                nan_up_left_corner = (min(where_is_nan[:,0]), min(where_is_nan[:,1]))
+                nan_down_right_corner = (max(where_is_nan[:,0]), max(where_is_nan[:,1]))
+                # Select only the biggest rectangle that does not contain 'NaN'
+                pic_shape = pic.shape
+                right_split_pic_width = nan_up_left_corner[1]
+                left_split_pic_width = pic_shape[1] - nan_down_right_corner[1]
+                if(right_split_pic_width > left_split_pic_width):
+                    # conserve only the right picture's part
+                    pic = pic[:, 0:nan_up_left_corner[1]]
+                else:
+                    # otherwise, conserve the other part
+                    pic = pic[:, nan_down_right_corner[1]+1:]
+                pic_reshape = pic.shape
+                if(np.any(np.isnan(pic))):
+                    print('Impossible to erase NaN.')
+                else:
+                    print('NaN erased. Reshape operation: {} --> {}'.format(pic_shape, pic_reshape))
+            if(new_frame is None):
+                new_frame = np.zeros(pic.shape+(shape[2],), dtype=np.float32)
+            try:
+                new_frame[:,:,c] = pic
+            except:
+                print('All channels are no coherents')
+                print('Previous channel:')
+                #plt.imshow(frame[:,:,c-1])
+                #plt.show()
+                print('New channel:')
+                #plt.imshow(frame[:,:,c])
+                #plt.show()
+                print(traceback.format_exc())
+                raise
+        return new_frame
+             
     
     # For all files found, counts the number of videos, frames and channels/frames
     # as well as the mean size and diff between max and min size for each video.
+    # Gives also the statistics about the l1-error (RMS) between the first and last
+    # frame in each video (with more than 'nb_min_frame_for_rms' frame).
     @staticmethod
-    def check_statistics(path_to_files, out = None):
+    def check_statistics(path_to_files, out = None, nb_min_frame_for_rms=10):
         if(os.path.isdir(path_to_files)):
             files = sorted(glob.glob(os.path.join(path_to_files, '*')))
         elif(os.path.isfile(path_to_files)):
@@ -161,7 +212,8 @@ class Data_Downloader:
             except:
                 print('Impossible to redirect output to {}. Redirecting to stdout instead'.format(out))
                 out = sys.stdout
-        results = {'nb_frames' : [], 'avg_size': [], 'nb_channels' : [], 'min_max_size': []}
+        results = {'nb_frames' : [], 'avg_size': [], 'nb_channels' : [], 
+                   'min_max_size': [], 'rms':[]}
         glob_counter= 0
         for file in files:
             try:
@@ -173,14 +225,36 @@ class Data_Downloader:
                             avg_size = np.array([0, 0])
                             nb_channels = 0
                             nb_frames = 0
+                            l1_err = 0
+                            vid_init = False
+                            first_frame = None
+                            last_frame= None
                             for frame_key in db[vid_key].keys():
                                 if('channels' in db[vid_key][frame_key].keys() and
                                     len(db[vid_key][frame_key]['channels'].shape) == 3):
+                                    if(not vid_init):
+                                        first_frame = Data_Downloader._check_nan(db[vid_key][frame_key]['channels'])
+                                        vid_init = True
+                                    # !!TO BE CHANGED (ASSUME THAT FRAME_KEY == FRAME[0-..]) !!
+                                    if(frame_key == sorted(list(db[vid_key].keys()), 
+                                                           key=lambda frame_key : float(frame_key[5:]))[-1]):
+                                        last_frame = Data_Downloader._check_nan(db[vid_key][frame_key]['channels'])
                                     max_size = max(max_size, np.prod(db[vid_key][frame_key]['channels'].shape[0:2]))
                                     min_size = min(min_size, np.prod(db[vid_key][frame_key]['channels'].shape[0:2]))
                                     nb_channels = db[vid_key][frame_key]['channels'].shape[2]
                                     avg_size += db[vid_key][frame_key]['channels'].shape[0:2]
                                     nb_frames += 1
+                            if(nb_frames > nb_min_frame_for_rms):
+                                if(first_frame is not None and last_frame is not None):
+                                    for c in range(nb_channels):
+                                        l1_err += np.sum(np.abs(sk.resize(first_frame[:,:,c], last_frame.shape[:2], preserve_range=True)- last_frame[:,:,c]))
+                                    results['rms'] += [l1_err/np.product(last_frame.shape)]
+                                else:
+                                    print('Unable to find first and last frame in file {}, video {}'.format(file, vid_key))
+                                
+                                
+                            #if(nb_frames > 24):
+                            #    print(file+'-'+vid_key+' ('+ db[vid_key].attrs['peak_time']+')'+'=>'+str(nb_frames)+' frames')
                             results['nb_frames'] += [nb_frames]
                             results['avg_size'] += [avg_size/nb_frames]
                             results['min_max_size'] +=[max_size-min_size]
@@ -189,6 +263,7 @@ class Data_Downloader:
             except:                
                 print('Impossible to get descriptors for file {}'.format(file))
                 print(traceback.format_exc())
+                break
         out.write('NB OF VIDEOS : {}\n'.format(glob_counter))
         out.write('NB OF FRAMES : {}\n'.format(sum(results['nb_frames'])))
         out.write('NB OF FRAMES / VIDEO:\n')
@@ -199,6 +274,8 @@ class Data_Downloader:
         out.write('\t'+str(stats.describe(results['min_max_size'])))
         out.write('\nNB OF CHANNELS:\n')
         out.write('\t'+str(stats.describe(results['nb_channels'])))
+        out.write('\nRMS:\n')
+        out.write('\t'+str(stats.describe(results['rms'])))
         if(close_flag):
             out.close()
     
@@ -229,7 +306,7 @@ class Data_Downloader:
                 out.write('File {}:\n'.format(file))
                 with h5py.File(file, 'r') as db:
                     for vid_key in db.keys():
-                        out.write('\t\'{}\' => {}\n'.format(vid_key, db[vid_key].attrs['peak_time']))
+                        out.write('\t\'{}\' => {} ({}-flare)\n'.format(vid_key, db[vid_key].attrs['peak_time'], db[vid_key].attrs['event_class']))
             except:                
                 print('Impossible to display peak time for file {}'.format(file))
                 print(traceback.format_exc())
@@ -240,7 +317,7 @@ class Data_Downloader:
     
     # Display a video from .hdf5 file
     @staticmethod
-    def display_vid(file, vid):
+    def display_vid(file, vid, save_pictures=False):
         try:
             with h5py.File(file, 'r') as db:
                 video = db[vid]
@@ -254,16 +331,20 @@ class Data_Downloader:
                     for frame_key in frame_keys:
                         channel_count = 0
                         for channel in channels:
-                            cv2.namedWindow(channel.decode(), cv2.WINDOW_NORMAL)
-                            cv2.resizeWindow(channel.decode(), height, width)
-                            cv2.imshow(channel.decode(), video[frame_key]['channels'][:,:,channel_count])
+                            if(save_pictures):
+                                plt.imsave('{}_{}'.format(frame_key, channel) ,arr=video[frame_key]['channels'][:,:,channel_count], cmap='gray')
+                            else:
+                                cv2.namedWindow(channel.decode(), cv2.WINDOW_NORMAL)
+                                cv2.resizeWindow(channel.decode(), height, width)
+                                cv2.imshow(channel.decode(), video[frame_key]['channels'][:,:,channel_count])
                             channel_count += 1
-                        cv2.waitKey(0)
+                        if(not save_pictures):
+                            cv2.waitKey(0)
                     cv2.destroyAllWindows()
         except:
             print('Impossible to display the video.')
             print(traceback.format_exc())
-                    
+                       
     # Aims to check the integrity of the file 'hdf5_file' according to the 
     # format defined previously. If correct_file is True, then:
     #   * frames with no channels are erased.
@@ -463,7 +544,7 @@ class Data_Downloader:
             reader = csv.reader(file, delimiter=',')
             client = drms.Client()
             mem = 0 # Set a counter for the current cache memory (in bytes) used by videos
-            part_counter = 54
+            part_counter = 0
             vid_counter = 0
             counter = 0
             current_save_file = h5py.File('{}_part_{}.hdf5'.format(files_core_name, part_counter), 'w') 
@@ -481,12 +562,11 @@ class Data_Downloader:
                         # Change the date format
                         peak_time = self._UTC2JSOC_time(str(peak_time))
                         start_time = self._UTC2JSOC_time(str(start_time))
+                        # Do the request to JSOC database
+                        query = '{}[{}-{}{}]'.format(jsoc_serie, start_time, peak_time, sample_time)
+                        if(len(self.ar_segs)==0): keys = client.query(query, key=self.ar_attrs)
+                        else: keys, segments = client.query(query, key=self.ar_attrs, seg=self.ar_segs)
                         try:
-                            # Do the request to JSOC database
-                            query = '{}[{}-{}{}]'.format(jsoc_serie, start_time, peak_time, sample_time)
-                            if(len(self.ar_segs)==0): keys = client.query(query, key=self.ar_attrs)
-                            else: keys, segments = client.query(query, key=self.ar_attrs, seg=self.ar_segs)
-                        
                             # Downloads the video of this solar flare and construct 
                             # the HDF5 file.
                             nb_frame = len(keys.NOAA_AR)-1
@@ -515,7 +595,7 @@ class Data_Downloader:
                                     seg_counter = 0
                                     for seg in self.ar_segs:
                                         url = 'http://jsoc.stanford.edu' + segments[seg][nb_frame]
-                                        data = np.array(fits.getdata(url), dtype=np.float32)
+                                        data = np.array(fits.getdata(url, cache=False), dtype=np.float32)
                                         if(data_shape is None):
                                             data_shape = data.shape
                                             frame = np.zeros(data_shape + (len(self.ar_segs),), dtype=np.float32)
@@ -529,8 +609,8 @@ class Data_Downloader:
                                         dumping = True
                                 nb_frame -= 1
                             if(frame_counter == 0):
-                                del current_vid
-                                vid_counter -=1 
+                            #    del current_save_file['video{}'.format(vid_counter)]
+                            #    vid_counter -=1 
                                 print('No frame downloaded, video erased.')
                             else:
                                 print('Video {} associated to event {} extracted ({} frames)'.format(vid_counter, event[peak], frame_counter))
@@ -558,18 +638,16 @@ class Data_Downloader:
         return True
 
 
-main_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5'
-goes_data_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/GOES_dataset.csv'
+main_path = '/nobackup/bdufumie/SolarFlaresProject/Data/SF/'
+goes_data_path = '/home6/bdufumie/SolarFlaresProject/DataQuery/GOES_dataset_B.csv'
 goes_attrs = utils.config['SF']['goes_attrs']
 ar_attrs = utils.config['SF']['ar_attrs']
 ar_segs = utils.config['SF']['segs']
 
-downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
-downloader.download_jsoc_data(files_core_name = 'B_train_jsoc_data',
-                           directory = 'train/B-class-flares',
-                           goes_data_path =goes_data_path, 
-                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
-                           start_time = '2016-06-11',
-                           hours_before_event = 72, sample_time = '@1h',
-                           limit = 1000)
-
+#downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
+#downloader.download_jsoc_data(files_core_name = 'B_jsoc_data',
+#                           directory = 'B-class-flares-clean',
+#                           goes_data_path =goes_data_path, 
+#                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
+#                           hours_before_event = 24, sample_time = '@1h',
+#                           limit = None)

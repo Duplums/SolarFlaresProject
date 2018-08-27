@@ -73,8 +73,6 @@ X1_training, X1_testing, y1_training, y1_testing = train_test_split(X1, y_true, 
 X2_training, X2_testing, y2_training, y2_testing = train_test_split(X2, y_true, test_size=test_size, random_state = 20)
 X3_training, X3_testing, y3_training, y3_testing = train_test_split(X3, y_true, test_size=test_size, random_state = 20)
 
-
-
 fig, ax = plt.subplots(figsize=(10, 10))
 bp_pos = plt.boxplot([pos_ts[:,1,0], pos_ts[:,1,45], pos_ts[:,1,-1]], positions=[2,5,7], widths=0.6)
 bp_neg = plt.boxplot([neg_ts[:,1,0],neg_ts[:,1,45],neg_ts[:,1,-1]], positions=[1,4,8], widths=0.6)
@@ -98,9 +96,6 @@ ax.set_xticklabels(['12 min', '9h', '18h'])
 ax.set_xlabel('Time before eruption')
 ax.set_title('Number of active pixels in patch')
 plt.show()
-
-
-
 
 time_i = 89
 frame_to_extract = -1 # the last one
@@ -133,9 +128,6 @@ plt.xlabel('Nb of frames considered (time points)')
 plt.ylabel('Accuracy')
 
 
-
-
-
 # SVM (rbf kernel)
 scaler = StandardScaler()
 scaler.fit(X2_training)
@@ -148,10 +140,26 @@ print_metrics(y2_testing, clf.predict(scaler.transform(X2_testing)))
 
 
 
+## Analysis of the RMS according to the time before the event. 
+rms_B_train = np.load('rms_B_train.npy')
+rms_B_test = np.load('rms_B_test.npy')
 
 
+plt.plot(rms_B_train[1],  np.mean(rms_B_train[0][:,0,:], axis=0), 'r')
+plt.plot(rms_B_train[1], np.mean(rms_B_train[0][:,0,:], axis=0) + 3*np.std(rms_B_train[0][:,0,:], axis=0), 'b--')
+plt.plot(rms_B_train[1], np.mean(rms_B_train[0][:,0,:], axis=0) - 3*np.std(rms_B_train[0][:,0,:], axis=0), 'b--')
 
+plt.xlabel('Time from the eruption (in minutes)')
+plt.ylabel('RMS between the last frame and the i-th frame')
+plt.show()
 
+plt.plot(rms_B_test[1],  np.mean(rms_B_test[0][:,0,:], axis=0), 'r')
+plt.plot(rms_B_test[1], np.mean(rms_B_test[0][:,0,:], axis=0) + 3*np.std(rms_B_test[0][:,0,:], axis=0), 'b--')
+plt.plot(rms_B_test[1], np.mean(rms_B_test[0][:,0,:], axis=0) - 3*np.std(rms_B_test[0][:,0,:], axis=0), 'b--')
+
+plt.xlabel('Time from the eruption (in minutes)')
+plt.ylabel('RMS between the last frame and the i-th frame')
+plt.show()
 
 
 

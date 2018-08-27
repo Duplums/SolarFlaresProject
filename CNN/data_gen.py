@@ -9,6 +9,7 @@ a graph is needed.
 import os, re, pickle, traceback, math, drms
 from collections import OrderedDict
 import matplotlib.pyplot as plt
+import skimage.transform as sk
 import tensorflow as tf
 import numpy as np
 import h5py as h5
@@ -17,6 +18,7 @@ import h5py as h5
 class Data_Gen:
     
     graph = None
+    main_path = None
     paths_to_file = None # array of paths where we can find the data
     output_features_dir = None 
     output_features = None
@@ -41,10 +43,10 @@ class Data_Gen:
     seq_length_iterator = None
     training_mode = None
     
-    def __init__(self, data_name, config, graph, tf_device = '/cpu:0',
+    def __init__(self, data_name, config, graph = None, tf_device = '/cpu:0',
                  training=True, max_pic_size=None):
         assert data_name in {'SF', 'SF_LSTM', 'MNIST', 'CIFAR-10', 'IMG_NET'}
-        
+ 
         self.paths_to_file = []
         self.size_of_files = []
         self.memory_size =  config['batch_memsize']
@@ -76,9 +78,9 @@ class Data_Gen:
                 self.subsampling = config['subsampling']
 
         if(training):
-            paths = config['training_paths']
+            self.main_path = config['training_paths']
         else:   
-            paths = config['testing_paths']
+            self.main_path = config['testing_paths']
 
         if(data_name in {'MNIST', 'CIFAR-10', 'IMG_NET'}):
             print('Warning: no preprocessing for this data base. We assert that the HDF5 files are organized as follows:\n')
@@ -93,7 +95,18 @@ class Data_Gen:
             print('\t\t meta(i) : labels(i) (i in [1,N])\n')
         
         # First checks
-        for path in paths:
+        self.init_paths_to_file()
+        
+        if(self.max_pic_size is None and data_name == 'SF'):
+            print('Computing the maximum of picture size...')
+            self.max_pic_size = self.get_max_size()
+        if(self.max_pic_size is None or max_pic_size[0] < 0 or self.max_pic_size[1] < 0):
+            print('Warning: maximum size unknown ({}), could lead to error'.format(self.max_pic_size))
+        else:
+            print('Maximum size found : {}'.format(self.max_pic_size))
+    
+    def init_paths_to_file(self):
+         for path in self.main_path:
             if os.path.exists(path):
                 for file in os.listdir(path):   
                     path_to_file = os.path.join(path, file)
@@ -108,14 +121,6 @@ class Data_Gen:
                         print('Directory \'{}\' ignored.'.format(path_to_file))
             else:
                 print('Path {} does not exist. Ignored'.format(path))
-        
-        if(self.max_pic_size is None and data_name == 'SF'):
-            print('Computing the maximum of picture size...')
-            self.max_pic_size = self.get_max_size()
-        if(self.max_pic_size is None or max_pic_size[0] < 0 or self.max_pic_size[1] < 0):
-            print('Warning: maximum size unknown ({}), could lead to error'.format(self.max_pic_size))
-        else:
-            print('Maximum size found : {}'.format(self.max_pic_size))
     
      # Returns the maximum size of pictures found in all files
     def get_max_size(self):
@@ -144,55 +149,78 @@ class Data_Gen:
     
      # Takes a video and a list of scalars as input and returns the corresponding
     # time series.
-    def _extract_timeseries_from_video(self, vid, scalars):
-        res = np.zeros((len(scalars), len(vid)), dtype=np.float32)
-        sample_time = np.zeros(len(vid), dtype=np.float32)
+    @staticmethod
+    def _extract_timeseries_from_video(vid, scalars, channels):
+        res = [[] for k in range(len(scalars))]
+        sample_time = []
         tf = drms.to_datetime(vid.attrs['end_time'])
-        i = 0
-        j = 0
-        for frame_key in vid.keys():
-            ti = drms.to_datetime(vid[frame_key].attrs['T_REC'])
-            sample_time[j] = (tf - ti).total_seconds()/60
-            for scalar in scalars:
-                res[i,j] = vid[frame_key].attrs[scalar]
-                i += 1
-            j += 1
-            i = 0
-        return res, sample_time
+        first_frame = None
+        for frame_key in sorted(list(vid.keys()), key=lambda frame_key : float(frame_key[5:])):
+            if('channels' in vid[frame_key].keys() and
+               len(vid[frame_key]['channels'].shape) == 3):
+                ti = drms.to_datetime(vid[frame_key].attrs['T_REC'])
+                sample_time += [(tf - ti).total_seconds()/60]
+                if(first_frame is None):
+                    first_frame = Data_Gen._check_nan(vid[frame_key]['channels'])
+                i = 0
+                for scalar in scalars:
+                    if(scalar == 'RMS'):
+                        l1_err = 0
+                        try:
+                            for c in range(first_frame.shape[2]):
+                                if(vid[frame_key].attrs['SEGS'][c].decode() in channels):
+                                        this_frame = Data_Gen._check_nan(vid[frame_key]['channels'])
+                                        l1_err += np.sum(np.abs(sk.resize(this_frame[:,:,c], first_frame.shape[:2], preserve_range=True)-first_frame[:,:,c]))
+                            res[i] += [l1_err/np.product(first_frame.shape[0:2])*len(channels)]
+                        except:
+                            print('Frame {} not extracted.'.format(frame_key))
+                            print(traceback.format_exc())
+                    else:
+                        res[i] += [vid[frame_key].attrs[scalar]]
+                    i += 1
+        return np.array(res), np.array(sample_time)
     
     # Extracts some scalars from video that evolve according to the time (ex: SIZE of a frame).
     # The scalar must be in the frame attributes of a video. These time series are concatenated
     # in one list for every videos. 'tstart' and 'tend' are used to know when the time series
     # begin and end (from an event, time reversed). If values are missing (<5% by default), 
     # they are interpolated.
-    def extract_timeseries(self, scalars, tstart, tend, loss=0.05):
-        if(self.database_name != 'SF'):
-            print('The data base must be from JSOC.')
-            return None
-        
-        nb_frames = int((tend - tstart)/self.time_step) + 1
+    @staticmethod
+    def extract_timeseries(paths_to_file = [], scalars = [], 
+                           channels = ['Br', 'Bt', 'Bp'], 
+                           time_step=60, tstart=0, tend=60*24, loss=0.05):
+        nb_frames = int((tend - tstart)/time_step) + 1
         nb_scalars = len(scalars)
         sample_time = np.linspace(tstart, tend, nb_frames)
         res = []
         print('{} frames are considered from {}min before a solar eruption to {}min.'.format(nb_frames, tstart, tend))
+        if(type(paths_to_file) is not list and os.path.isdir(paths_to_file)):
+            print('Path to a directory. All the files inside are scanned')
+            path = paths_to_file
+            paths_to_file = []
+            for file in os.listdir(path):
+                if(os.path.isfile(os.path.join(path, file))):
+                    paths_to_file += [os.path.join(path, file)]
         print('INFO: a linear interpolation is used to reconstruct the time series.')
-        for file_path in self.paths_to_file:
+        for file_path in paths_to_file:
             if(os.path.isfile(file_path)):
                 try:
                     with h5.File(file_path, 'r') as db:
+                        print('Analyzing file {}'.format(file_path))
                         for vid_key in db.keys():
-                            vid_time_series, vid_sample_time = self._extract_timeseries_from_video(db[vid_key], scalars)
-                            i_start = np.argmin(abs(sample_time - tstart))
-                            i_end = np.argmin(abs(sample_time - tend))
-                            if(np.any(np.isnan(vid_time_series))):
-                                print('Video {} ignored because the time series associated contains \'NaN\'.'.format(vid_key))
-                            elif(abs(sample_time[i_start] - tstart) <= self.time_step):
-                                nb_frames_in_vid = i_end - i_start + 1
-                                if(1 - nb_frames_in_vid/nb_frames <= loss):
-                                    res_vid = np.zeros((nb_scalars, nb_frames), dtype=np.float32)
-                                    for k in range(nb_scalars):
-                                        res_vid[k,:] = np.interp(sample_time, vid_sample_time, vid_time_series[k,:])
-                                    res += [res_vid]
+                            vid_time_series, vid_sample_time = Data_Gen._extract_timeseries_from_video(db[vid_key], scalars, channels)
+                            if(len(vid_sample_time) > 0):
+                                i_start = np.argmin(abs(vid_sample_time - tstart))
+                                i_end = np.argmin(abs(vid_sample_time - tend))
+                                if(np.any(np.isnan(vid_time_series))):
+                                    print('Video {} ignored because the time series associated contains \'NaN\'.'.format(vid_key))
+                                elif(abs(sample_time[i_start] - tstart) <= time_step):
+                                    nb_frames_in_vid = i_end - i_start + 1
+                                    if(1 - nb_frames_in_vid/nb_frames <= loss):
+                                        res_vid = np.zeros((nb_scalars, nb_frames), dtype=np.float32)
+                                        for k in range(nb_scalars):
+                                            res_vid[k,:] = np.interp(sample_time, vid_sample_time, vid_time_series[k,:])
+                                        res += [res_vid]
                             
                 except:
                     print('Impossible to extract time series from file {}'.format(file_path))
@@ -200,8 +228,8 @@ class Data_Gen:
             else:
                 print('File {} does not exist. Ignored'.format(file_path))
 
-            return np.array(res, dtype=np.float32), sample_time
-        
+        return np.array(res, dtype=np.float32), sample_time
+    
     # Assigns a label (int number) associated to a flare class.
     # This label depends of the number of classes.
     def _label(self, flare_class):
@@ -286,7 +314,9 @@ class Data_Gen:
     # OUTPUT : 2 lists that contains pictures of possibly various sizes and 
     # the labels associated. NOTE: if vid_infos is true, another list containing
     # video information relatively to the picture is added. Each meta data is 
-    # formatted as : '{name_file}|{name_vid}|{frame_shape}|{frame_nb}'
+    # formatted as : '{name_file}|{name_vid}|{active region size}|{frame_nb}'
+    # !! CAREFUL: we assume that 'SIZE_ACR' is an attribute associated to EVERY frame
+    # in the data base !! 
     def _extract_data(self, files_to_extract, saving = False, retrieve = False, 
                       vid_infos = False):
         features = []
@@ -344,7 +374,7 @@ class Data_Gen:
                                                 frame_tensor = self._extract_frame(db[vid_key][frame_key]['channels'], db[vid_key][frame_key].attrs['SEGS'])                              
                                                 curr_features += [frame_tensor]
                                                 curr_labels += [label]
-                                                curr_meta += [meta+str(frame_tensor.shape[:2])+'|'+str(self._to_frame_num(frame_key))]
+                                                curr_meta += [meta+str(db[vid_key][frame_key].attrs['SIZE_ACR'])+'|'+str(self._to_frame_num(frame_key))]
                                 print('Data extracted from file {}.'.format(file_path))
                                 if(saving):
                                     try:
@@ -437,7 +467,8 @@ class Data_Gen:
         return (features, labels)
     
     
-    # We assume that each metadata are formatted as : '{name_file}|{name_vid}|{frame_shape}|{name_frame}'
+    # We assume that each metadata are formatted as : '{name_file}|{name_vid}|{active region size}|{frame_nb}'
+    # The active region size is added manually at the beginning of every features.
     def add_output_features(self, features, labels, metadata):
         assert len(features) == len(labels) == len(metadata)
         
@@ -448,9 +479,10 @@ class Data_Gen:
                 if(len(meta_list) == 4):
                     feature_key = meta_list[0]+'_'+meta_list[1]
                     frame_nb = int(meta_list[3])
+                    size_acr = int(meta_list[2])
                     if(feature_key in self.output_features):
                         if(frame_nb not in self.output_features[feature_key]):
-                            self.output_features[feature_key].update({frame_nb: features[k]})
+                            self.output_features[feature_key].update({frame_nb: [size_acr, features[k]]})
                         else:
                             print('Warning: frame {} already exists. Ignored'.format(frame_nb))
                     else:

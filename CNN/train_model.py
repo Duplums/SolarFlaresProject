@@ -36,6 +36,7 @@ def train_model(data):
     learning_rate = config['learning_rate'] # initial learning rate
     epsilon = config['tolerance'] # useful for updating learning rate
     nb_classes = config['nb_classes']
+    loss_weights = config['loss_weights']
     num_epochs = config['num_epochs']
     checkpoint_iter = config['checkpoint_iter']
     model_name = config['model']
@@ -63,10 +64,10 @@ def train_model(data):
         it_global = tf.Variable(tf.constant(0, shape=[], dtype=tf.int32), trainable=False)
         update_it_global = tf.assign_add(it_global, tf.shape(input_data)[0]) 
         if(model_name == 'VGG_16'):
-            training_model = model.Model('VGG_16', nb_classes, batch_norm=config['batch_norm'], dropout_prob=config['dropout_prob'])
+            training_model = model.Model('VGG_16', nb_classes, batch_norm=config['batch_norm'], dropout_prob=config['dropout_prob'], loss_weights=loss_weights)
             training_model.build_vgg16_like(input_data)
         elif(model_name == 'LSTM'):
-            training_model = model.Model('LSTM', nb_classes)
+            training_model = model.Model('LSTM', nb_classes, loss_weights=loss_weights)
             training_model.build_lstm(input_data, input_seq_length)
         
         training_model.construct_results(input_labels)
@@ -83,7 +84,7 @@ def train_model(data):
 
     # init and run training session
     print('Initializing training graph.')
-    sess = tf.Session(graph=G)
+    sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True))
     tf.train.start_queue_runners(sess=sess)
     sess.run(global_init)
     sess.run(local_init)
@@ -95,6 +96,8 @@ def train_model(data):
         for epoch in range(num_epochs):
             # re-init the learning rate at the beginning of each epoch
             learning_rate = config['learning_rate']
+            # re-init paths_to_file
+            train_data_gen.init_paths_to_file()
             # training loop 
             features, labels, metadata = train_data_gen.gen_batch_dataset(save_extracted_data=False, 
                                                                              retrieve_data=False,
@@ -147,7 +150,7 @@ def train_model(data):
                         # computes the metrics
                         metrics_ = sess.run(metrics)
                         # updates the learning rate and the old_loss
-                        #if(batch_it ):
+                        #if(results[-1] % 1000 == 0 and results[-1] > 0):
                         #    learning_rate /= 2
                         # plot the variables in TensorBoard
                         train_writer.add_summary(results[0], global_step=results[10])
@@ -155,7 +158,7 @@ def train_model(data):
                         print('Epoch {}, Batch {}, step {}, accuracy : {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
                               metrics_[0], results[2], learning_rate))
                         # save the weigths
-                        if(results[10] % checkpoint_iter == 0):
+                        if(step % 1000  == 0):
                             saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), it_global)
                             print('Checkpoint saved')
                         step += 1
@@ -178,16 +181,16 @@ def train_model(data):
 # by the CNN as a list of Tensor (np array) of dimension:
 # nb_time_step x n_features where n_features = output space dim
             
-def test_model(data, test_on_training_and_save_features = False):
+def test_model(data, test_on_training = False, save_features = False):
     config = utils.config[data]
     checkpoint_dir = config['checkpoint']
     nb_classes = config['nb_classes']
     model_name = config['model']
     # Testing graph
     G = tf.Graph()
-    test_data_gen = data_gen.Data_Gen(data, config, G, training=test_on_training_and_save_features,
+    test_data_gen = data_gen.Data_Gen(data, config, G, training=test_on_training,
                                       max_pic_size=[3000,3000])
-    with G.as_default(), tf.device('/cpu:0'):        
+    with G.as_default():        
         input_data = tf.placeholder(dtype=tf.float32,
                                     shape=[None]+config['data_dims'],
                                     name='data')
@@ -216,6 +219,7 @@ def test_model(data, test_on_training_and_save_features = False):
     sess = tf.Session(graph=G)
     tf.train.start_queue_runners(sess=sess)
     start = time.time()
+    print(checkpoint_dir)
     with sess.as_default():
         if(restore_checkpoint(sess, saver, checkpoint_dir)):
             # Do not forget to reset metrics before using it !
@@ -248,7 +252,7 @@ def test_model(data, test_on_training_and_save_features = False):
                                testing_model.pool5, testing_model.spp]
                         
                         # we also want the output of our network
-                        if(test_on_training_and_save_features):
+                        if(save_features):
                             ops += [testing_model.dense2]
                         
                         metrics = [testing_model.accuracy, testing_model.precision, 
@@ -257,7 +261,7 @@ def test_model(data, test_on_training_and_save_features = False):
                         # Computes the output, updates the metrics and global iterator
                         res = sess.run(ops, feed_dict=inputs)
                         # add the features to a queue before its real saving on disk
-                        if(test_on_training_and_save_features):
+                        if(save_features):
                             test_data_gen.add_output_features(res[-1], data_test[1], data_test[2])
                         # computes the metrics
                         metrics_ = sess.run(metrics)
@@ -269,13 +273,16 @@ def test_model(data, test_on_training_and_save_features = False):
                 
                 # Dump the features in the queue (cannot be done before because
                 # we do not control which pictures are given to the network)
-                if(test_on_training_and_save_features):
+                if(save_features):
                     test_data_gen.dump_output_features()
                 # plots in console the metrics we want and hyperparameters
                 print('-----\nBATCH {} -----\n'.format(batch_it))
                 print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}\nConfusion Matrix : {}\n-----'.format(metrics_[0], 
                   metrics_[1], metrics_[2], metrics_[3], metrics_[4]))
-                np.save(checkpoint_dir+'/confusion_matrix', metrics_[4])
+                if(test_on_training):
+                    np.save(checkpoint_dir+'/training_confusion_matrix', metrics_[4])
+                else:
+                    np.save(checkpoint_dir+'/testing_confusion_matrix', metrics_[4])
                 # Updates the data and the batch counter
                 features, labels, metadata = test_data_gen.gen_batch_dataset(save_extracted_data = False, 
                                                                    retrieve_data = False,
@@ -294,6 +301,7 @@ if __name__ == '__main__':
     parser.add_argument("data_type", type=str, help="Set the working data set.", choices=["SF", "SF_LSTM", "MNIST", "CIFAR-10"])
     parser.add_argument("--testing", help="Set the mode (training or testing mode).", default=False, action='store_true')
     parser.add_argument("--save_features", help="If this option is enabled, it saves the output features from the training set.", default=False, action='store_true')
+    parser.add_argument("--test_on_training", help="If this option and testing mode enabled, it tests the model on the training data set", default=False, action='store_true')
     parser.add_argument("--data_dims", nargs="+", help="Set the dimensions of feature ([H, W, C] for pictures) in the data set. None values accepted.")
     parser.add_argument("--batch_memsize", type=int, help="Set the memory size of each batch loaded in memory.")
     parser.add_argument("-m", "--model", type=str, help="Set the neural network model used.", choices=["VGG_16", "LSTM"])
@@ -305,7 +313,7 @@ if __name__ == '__main__':
     parser.add_argument("-p", "--prefetch_batch_size", type=int, help="Set the number of pre-fetch features in each batch.")
     parser.add_argument("-s", "--subsampling", type=int, help="Set the subsampling value for each videos (only for SF data set).")
     parser.add_argument("-e", "--num_epochs", type=int, help="Set the total number of epochs for the training phase.")
-    
+    parser.add_argument("-w", "--loss_weights", nargs=2, type=float, help="Set the weights in the loss function (class imbalance problem).")
     args = parser.parse_args()
     data = args.data_type
     for key, val in args._get_kwargs():
@@ -322,7 +330,7 @@ if __name__ == '__main__':
                 utils.config[data][key] = val
     tf.reset_default_graph()
     if(args.testing):
-        test_model(data, args.save_features)
+        test_model(data, args.test_on_training, args.save_features)
     else:
         train_model(data)
 
