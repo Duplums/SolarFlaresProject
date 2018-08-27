@@ -287,11 +287,11 @@ class Data_Gen:
             except:
                 print('All channels are no coherents')
                 print('Previous channel:')
-                plt.imshow(frame[:,:,c-1])
-                plt.show()
+                #plt.imshow(frame[:,:,c-1])
+                #plt.show()
                 print('New channel:')
-                plt.imshow(frame[:,:,c])
-                plt.show()
+                #plt.imshow(frame[:,:,c])
+                #plt.show()
                 print(traceback.format_exc())
                 raise
         return new_frame
