@@ -150,7 +150,7 @@ class Data_Gen:
      # Takes a video and a list of scalars as input and returns the corresponding
     # time series.
     @staticmethod
-    def _extract_timeseries_from_video(vid, scalars):
+    def _extract_timeseries_from_video(vid, scalars, channels):
         res = [[] for k in range(len(scalars))]
         sample_time = []
         tf = drms.to_datetime(vid.attrs['end_time'])
@@ -166,14 +166,18 @@ class Data_Gen:
                 for scalar in scalars:
                     if(scalar == 'RMS'):
                         l1_err = 0
-                        for c in range(first_frame.shape[2]):
-                            this_frame = Data_Gen._check_nan(vid[frame_key]['channels'])
-                            l1_err += np.sum(np.abs(sk.resize(this_frame[:,:,c], first_frame.shape[:2], preserve_range=True)-first_frame[:,:,c]))
-                        res[i] += [l1_err/np.product(first_frame.shape)]
+                        try:
+                            for c in range(first_frame.shape[2]):
+                                if(vid[frame_key].attrs['SEGS'][c].decode() in channels):
+                                        this_frame = Data_Gen._check_nan(vid[frame_key]['channels'])
+                                        l1_err += np.sum(np.abs(sk.resize(this_frame[:,:,c], first_frame.shape[:2], preserve_range=True)-first_frame[:,:,c]))
+                            res[i] += [l1_err/np.product(first_frame.shape[0:2])*len(channels)]
+                        except:
+                            print('Frame {} not extracted.'.format(frame_key))
+                            print(traceback.format_exc())
                     else:
                         res[i] += [vid[frame_key].attrs[scalar]]
                     i += 1
-            
         return np.array(res), np.array(sample_time)
     
     # Extracts some scalars from video that evolve according to the time (ex: SIZE of a frame).
@@ -182,7 +186,9 @@ class Data_Gen:
     # begin and end (from an event, time reversed). If values are missing (<5% by default), 
     # they are interpolated.
     @staticmethod
-    def extract_timeseries(paths_to_file = [], scalars = [], time_step=60, tstart=0, tend=60*24, loss=0.05):
+    def extract_timeseries(paths_to_file = [], scalars = [], 
+                           channels = ['Br', 'Bt', 'Bp'], 
+                           time_step=60, tstart=0, tend=60*24, loss=0.05):
         nb_frames = int((tend - tstart)/time_step) + 1
         nb_scalars = len(scalars)
         sample_time = np.linspace(tstart, tend, nb_frames)
@@ -202,7 +208,7 @@ class Data_Gen:
                     with h5.File(file_path, 'r') as db:
                         print('Analyzing file {}'.format(file_path))
                         for vid_key in db.keys():
-                            vid_time_series, vid_sample_time = Data_Gen._extract_timeseries_from_video(db[vid_key], scalars)
+                            vid_time_series, vid_sample_time = Data_Gen._extract_timeseries_from_video(db[vid_key], scalars, channels)
                             if(len(vid_sample_time) > 0):
                                 i_start = np.argmin(abs(vid_sample_time - tstart))
                                 i_end = np.argmin(abs(vid_sample_time - tend))
