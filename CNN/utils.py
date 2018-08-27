@@ -17,7 +17,7 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                   'batch_size': 16, # nb pictures / local batch,
                   'prefetch_buffer_size': 16, 
                   'num_epochs': 10, # nb global batchs considered 
-                  'checkpoint_iter': 50, # save every 'checkpoint_iter' global iteration
+                  'checkpoint_iter': 100, # save every 'checkpoint_iter' global iteration
                   'ar_attrs' : ['T_REC', 'NOAA_AR', 'HARPNUM', 'LAT_FWT', 'LON_FWT',
                                 'SIZE', 'SIZE_ACR', 'NACR', 'NPIX', 'LAT_MIN', 'LAT_MAX',
                                 'LON_MIN', 'LON_MAX'],

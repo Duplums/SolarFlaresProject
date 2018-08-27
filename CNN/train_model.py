@@ -300,7 +300,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("data_type", type=str, help="Set the working data set.", choices=["SF", "SF_LSTM", "MNIST", "CIFAR-10"])
     parser.add_argument("--testing", help="Set the mode (training or testing mode).", default=False, action='store_true')
-    parser.add_argument("--save_features", help="If this option is enabled, it saves the output features from the training set.", default=False, action='store_true')
+    parser.add_argument("--save_features", help="If this option is enabled, it saves the output features from the training or testing set.", default=False, action='store_true')
     parser.add_argument("--test_on_training", help="If this option and testing mode enabled, it tests the model on the training data set", default=False, action='store_true')
     parser.add_argument("--data_dims", nargs="+", help="Set the dimensions of feature ([H, W, C] for pictures) in the data set. None values accepted.")
     parser.add_argument("--batch_memsize", type=int, help="Set the memory size of each batch loaded in memory.")
@@ -314,6 +314,7 @@ if __name__ == '__main__':
     parser.add_argument("-s", "--subsampling", type=int, help="Set the subsampling value for each videos (only for SF data set).")
     parser.add_argument("-e", "--num_epochs", type=int, help="Set the total number of epochs for the training phase.")
     parser.add_argument("-w", "--loss_weights", nargs=2, type=float, help="Set the weights in the loss function (class imbalance problem).")
+    parser.add_argument("--output_features_dir", type=str, help='Set the output directory where the extracted features should be saved.')
     args = parser.parse_args()
     data = args.data_type
     for key, val in args._get_kwargs():
@@ -326,7 +327,7 @@ if __name__ == '__main__':
                     else:
                         data_dims += [int(k)]
                 utils.config[data][key] = data_dims
-            elif(key!='data_type' and key!='training'):
+            elif(key!='data_type' and key!='testing'):
                 utils.config[data][key] = val
     tf.reset_default_graph()
     if(args.testing):
