@@ -179,11 +179,11 @@ class Data_Downloader:
             except:
                 print('All channels are no coherents')
                 print('Previous channel:')
-                plt.imshow(frame[:,:,c-1])
-                plt.show()
+                #plt.imshow(frame[:,:,c-1])
+                #plt.show()
                 print('New channel:')
-                plt.imshow(frame[:,:,c])
-                plt.show()
+                #plt.imshow(frame[:,:,c])
+                #plt.show()
                 print(traceback.format_exc())
                 raise
         return new_frame
@@ -248,7 +248,7 @@ class Data_Downloader:
                                 if(first_frame is not None and last_frame is not None):
                                     for c in range(nb_channels):
                                         l1_err += np.sum(np.abs(sk.resize(first_frame[:,:,c], last_frame.shape[:2], preserve_range=True)- last_frame[:,:,c]))
-                                    results['rms'] += [l1_err]
+                                    results['rms'] += [l1_err/np.product(last_frame.shape)]
                                 else:
                                     print('Unable to find first and last frame in file {}, video {}'.format(file, vid_key))
                                 
@@ -260,7 +260,7 @@ class Data_Downloader:
                             results['min_max_size'] +=[max_size-min_size]
                             results['nb_channels'] += [nb_channels]
                             glob_counter += 1
-            except TypeError:                
+            except:                
                 print('Impossible to get descriptors for file {}'.format(file))
                 print(traceback.format_exc())
                 break

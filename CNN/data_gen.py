@@ -200,21 +200,21 @@ class Data_Gen:
             if(os.path.isfile(file_path)):
                 try:
                     with h5.File(file_path, 'r') as db:
+                        print('Analyzing file {}'.format(file_path))
                         for vid_key in db.keys():
                             vid_time_series, vid_sample_time = Data_Gen._extract_timeseries_from_video(db[vid_key], scalars)
-                            print(vid_sample_time)
-                            print(vid_time_series)
-                            i_start = np.argmin(abs(sample_time - tstart))
-                            i_end = np.argmin(abs(sample_time - tend))
-                            if(np.any(np.isnan(vid_time_series))):
-                                print('Video {} ignored because the time series associated contains \'NaN\'.'.format(vid_key))
-                            elif(abs(sample_time[i_start] - tstart) <= time_step):
-                                nb_frames_in_vid = i_end - i_start + 1
-                                if(1 - nb_frames_in_vid/nb_frames <= loss):
-                                    res_vid = np.zeros((nb_scalars, nb_frames), dtype=np.float32)
-                                    for k in range(nb_scalars):
-                                        res_vid[k,:] = np.interp(sample_time, vid_sample_time, vid_time_series[k,:])
-                                    res += [res_vid]
+                            if(len(vid_sample_time) > 0):
+                                i_start = np.argmin(abs(vid_sample_time - tstart))
+                                i_end = np.argmin(abs(vid_sample_time - tend))
+                                if(np.any(np.isnan(vid_time_series))):
+                                    print('Video {} ignored because the time series associated contains \'NaN\'.'.format(vid_key))
+                                elif(abs(sample_time[i_start] - tstart) <= time_step):
+                                    nb_frames_in_vid = i_end - i_start + 1
+                                    if(1 - nb_frames_in_vid/nb_frames <= loss):
+                                        res_vid = np.zeros((nb_scalars, nb_frames), dtype=np.float32)
+                                        for k in range(nb_scalars):
+                                            res_vid[k,:] = np.interp(sample_time, vid_sample_time, vid_time_series[k,:])
+                                        res += [res_vid]
                             
                 except:
                     print('Impossible to extract time series from file {}'.format(file_path))
@@ -222,7 +222,7 @@ class Data_Gen:
             else:
                 print('File {} does not exist. Ignored'.format(file_path))
 
-            return np.array(res, dtype=np.float32), sample_time
+        return np.array(res, dtype=np.float32), sample_time
     
     # Assigns a label (int number) associated to a flare class.
     # This label depends of the number of classes.

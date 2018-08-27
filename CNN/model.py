@@ -104,6 +104,8 @@ class Model:
             self.logits = self.fc_layer(self.output, 32, self.nb_classes, 'logits', activation=None, dropout=False)
 
             self.weights_summary(tf.get_variable('conv1_1/kernel',shape=[3,3,nb_channels,64]), 'first_conv_weights')
+            #self.weights_summary(tf.get_variable('conv5_3/kernel',shape=[3,3,512,512]), 'last_conv_weights')
+            #self.weights_summary(self.dense2, '1024_fc_layer')
             self.weights_summary(self.output, 'last_fc_layer')
             #self.prob_summary(nb_pics)
             return self.output
