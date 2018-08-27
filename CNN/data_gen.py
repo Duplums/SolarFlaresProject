@@ -149,7 +149,8 @@ class Data_Gen:
     
      # Takes a video and a list of scalars as input and returns the corresponding
     # time series.
-    def _extract_timeseries_from_video(self, vid, scalars):
+    @staticmethod
+    def _extract_timeseries_from_video(vid, scalars):
         res = np.zeros(len(scalars), dtype=np.float32)
         sample_time = []
         tf = drms.to_datetime(vid.attrs['end_time'])
@@ -164,6 +165,7 @@ class Data_Gen:
                 i = 0
                 for scalar in scalars:
                     if(scalar == 'RMS'):
+                        l1_err = 0
                         for c in range(first_frame.shape[2]):
                             this_frame = Data_Gen._check_nan(vid[frame_key]['channels'])
                             l1_err += np.sum(np.abs(sk.resize(this_frame[:,:,c], first_frame.shape[:2], preserve_range=True)-first_frame[:,:,c]))
@@ -179,28 +181,33 @@ class Data_Gen:
     # in one list for every videos. 'tstart' and 'tend' are used to know when the time series
     # begin and end (from an event, time reversed). If values are missing (<5% by default), 
     # they are interpolated.
-    def extract_timeseries(self, paths_to_file = self.paths_to_file, scalars, tstart, tend, loss=0.05):
-        if(self.database_name != 'SF'):
-            print('The data base must be from JSOC.')
-            return None
-        
-        nb_frames = int((tend - tstart)/self.time_step) + 1
+    @staticmethod
+    def extract_timeseries(paths_to_file = [], scalars = [], time_step=60, tstart=0, tend=60*24, loss=0.05):
+        nb_frames = int((tend - tstart)/time_step) + 1
         nb_scalars = len(scalars)
         sample_time = np.linspace(tstart, tend, nb_frames)
         res = []
         print('{} frames are considered from {}min before a solar eruption to {}min.'.format(nb_frames, tstart, tend))
+        if(os.path.isdir(paths_to_file)):
+            print('Path to a directory. All the files inside are scanned')
+            path = paths_to_file
+            paths_to_file = []
+            for file in os.listdir(path):
+                if(os.path.isfile(os.path.join(path, file))):
+                    paths_to_file += [os.path.join(path, file)]
         print('INFO: a linear interpolation is used to reconstruct the time series.')
         for file_path in paths_to_file:
             if(os.path.isfile(file_path)):
                 try:
                     with h5.File(file_path, 'r') as db:
                         for vid_key in db.keys():
-                            vid_time_series, vid_sample_time = self._extract_timeseries_from_video(db[vid_key], scalars)
+                            vid_time_series, vid_sample_time = Data_Gen._extract_timeseries_from_video(db[vid_key], scalars)
+                            print(vid_time_series)
                             i_start = np.argmin(abs(sample_time - tstart))
                             i_end = np.argmin(abs(sample_time - tend))
                             if(np.any(np.isnan(vid_time_series))):
                                 print('Video {} ignored because the time series associated contains \'NaN\'.'.format(vid_key))
-                            elif(abs(sample_time[i_start] - tstart) <= self.time_step):
+                            elif(abs(sample_time[i_start] - tstart) <= time_step):
                                 nb_frames_in_vid = i_end - i_start + 1
                                 if(1 - nb_frames_in_vid/nb_frames <= loss):
                                     res_vid = np.zeros((nb_scalars, nb_frames), dtype=np.float32)
