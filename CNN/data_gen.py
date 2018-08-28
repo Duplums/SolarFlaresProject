@@ -173,6 +173,7 @@ class Data_Gen:
                                         l1_err += np.sum(np.abs(sk.resize(this_frame[:,:,c], first_frame.shape[:2], preserve_range=True)-first_frame[:,:,c]))
                             res[i] += [l1_err/np.product(first_frame.shape[0:2])*len(channels)]
                         except:
+                            sample_time = sample_time[:-1]
                             print('Frame {} not extracted.'.format(frame_key))
                             print(traceback.format_exc())
                     else:
@@ -479,10 +480,10 @@ class Data_Gen:
                 if(len(meta_list) == 4):
                     feature_key = meta_list[0]+'_'+meta_list[1]
                     frame_nb = int(meta_list[3])
-                    size_acr = int(meta_list[2])
+                    size_acr = float(meta_list[2])
                     if(feature_key in self.output_features):
                         if(frame_nb not in self.output_features[feature_key]):
-                            self.output_features[feature_key].update({frame_nb: [size_acr, features[k]]})
+                            self.output_features[feature_key].update({frame_nb: [size_acr] + features[k]})
                         else:
                             print('Warning: frame {} already exists. Ignored'.format(frame_nb))
                     else:
