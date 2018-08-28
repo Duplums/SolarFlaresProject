@@ -143,23 +143,32 @@ print_metrics(y2_testing, clf.predict(scaler.transform(X2_testing)))
 ## Analysis of the RMS according to the time before the event. 
 rms_B_train = np.load('rms_B_train.npy')
 rms_B_test = np.load('rms_B_test.npy')
+rms_M_X_test = np.load('rms_M_X_test.npy')
+rms_M_X_train = np.load('rms_M_X_train.npy')
 
+plt.figure(figsize=(10,10))
+plt.plot(rms_B_train[1],  np.median(rms_B_train[0][:,0,::-1], axis=0), 'orange', label ='RMS for B-flares on training set')
+plt.plot(rms_B_train[1], np.percentile(rms_B_train[0][:,0,::-1], 25, axis=0), 'b--')
+plt.plot(rms_B_train[1], np.percentile(rms_B_train[0][:,0,::-1], 75, axis=0), 'b--')
 
-plt.plot(rms_B_train[1],  np.mean(rms_B_train[0][:,0,:], axis=0), 'r')
-plt.plot(rms_B_train[1], np.mean(rms_B_train[0][:,0,:], axis=0) + 3*np.std(rms_B_train[0][:,0,:], axis=0), 'b--')
-plt.plot(rms_B_train[1], np.mean(rms_B_train[0][:,0,:], axis=0) - 3*np.std(rms_B_train[0][:,0,:], axis=0), 'b--')
+plt.plot(rms_B_test[1],  np.mean(rms_B_test[0][:,0,::-1], axis=0), 'g', label='RMS for B-flares on testing set')
+plt.plot(rms_B_test[1], np.percentile(rms_B_test[0][:,0,::-1], 25, axis=0), 'b--')
+plt.plot(rms_B_test[1], np.percentile(rms_B_test[0][:,0,::-1], 75, axis=0), 'b--')
 
-plt.xlabel('Time from the eruption (in minutes)')
+plt.plot(rms_M_X_test[1],  np.mean(rms_M_X_test[0][:,0,::-1], axis=0), 'red', label='RMS for >C-flare on testing set')
+plt.plot(rms_M_X_test[1], np.percentile(rms_M_X_test[0][:,0,::-1], 25, axis=0), 'b--')
+plt.plot(rms_M_X_test[1], np.percentile(rms_M_X_test[0][:,0,::-1], 75, axis=0), 'b--')
+
+plt.plot(rms_M_X_train[1],  np.mean(rms_M_X_train[0][:,0,::-1], axis=0), 'purple', label='RMS for >C-flare on training set')
+plt.plot(rms_M_X_train[1], np.percentile(rms_M_X_train[0][:,0,::-1], 25, axis=0), 'b--', label='1st quantile')
+plt.plot(rms_M_X_train[1], np.percentile(rms_M_X_train[0][:,0,::-1], 75, axis=0), 'b--', label='3rd quantile')
+
+plt.xlabel('Time until an eruption occurs (in minutes)')
 plt.ylabel('RMS between the last frame and the i-th frame')
+plt.legend()
 plt.show()
 
-plt.plot(rms_B_test[1],  np.mean(rms_B_test[0][:,0,:], axis=0), 'r')
-plt.plot(rms_B_test[1], np.mean(rms_B_test[0][:,0,:], axis=0) + 3*np.std(rms_B_test[0][:,0,:], axis=0), 'b--')
-plt.plot(rms_B_test[1], np.mean(rms_B_test[0][:,0,:], axis=0) - 3*np.std(rms_B_test[0][:,0,:], axis=0), 'b--')
 
-plt.xlabel('Time from the eruption (in minutes)')
-plt.ylabel('RMS between the last frame and the i-th frame')
-plt.show()
 
 
 

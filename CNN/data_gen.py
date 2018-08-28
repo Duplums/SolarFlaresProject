@@ -6,7 +6,7 @@ It also builds the input pipeline for the whole TensorFlow computation and thus
 a graph is needed.
 '''
 
-import os, re, pickle, traceback, math, drms
+import os, re, pickle, traceback, math, drms, sys
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 import skimage.transform as sk
@@ -161,7 +161,7 @@ class Data_Gen:
                 ti = drms.to_datetime(vid[frame_key].attrs['T_REC'])
                 sample_time += [(tf - ti).total_seconds()/60]
                 if(first_frame is None):
-                    first_frame = Data_Gen._check_nan(vid[frame_key]['channels'])
+                    first_frame = Data_Gen._extract_frame(vid[frame_key]['channels'], vid[frame_key].attrs['SEGS'], channels)
                 i = 0
                 for scalar in scalars:
                     if(scalar == 'RMS'):
@@ -169,7 +169,7 @@ class Data_Gen:
                         try:
                             for c in range(first_frame.shape[2]):
                                 if(vid[frame_key].attrs['SEGS'][c].decode() in channels):
-                                        this_frame = Data_Gen._check_nan(vid[frame_key]['channels'])
+                                        this_frame = Data_Gen._extract_frame(vid[frame_key]['channels'], vid[frame_key].attrs['SEGS'], channels)
                                         l1_err += np.sum(np.abs(sk.resize(this_frame[:,:,c], first_frame.shape[:2], preserve_range=True)-first_frame[:,:,c]))
                             res[i] += [l1_err/np.product(first_frame.shape[0:2])*len(channels)]
                         except:
@@ -226,6 +226,7 @@ class Data_Gen:
                 except:
                     print('Impossible to extract time series from file {}'.format(file_path))
                     print(traceback.format_exc())
+                    sys.exit(0)
             else:
                 print('File {} does not exist. Ignored'.format(file_path))
 
@@ -297,18 +298,19 @@ class Data_Gen:
                 raise
         return new_frame
     
-    def _extract_frame(self, frame, frame_segs):
-        nb_channels = len(self.segs)
+    @staticmethod
+    def _extract_frame(frame, frame_segs, frame_final_segs):
+        nb_channels = len(frame_final_segs)
         shape_frame = frame.shape[0:2] + (nb_channels,)
         frame_tensor = np.zeros(shape_frame, dtype=np.float32)
         channel_counter = 0
         # Considers only certain segments
         for k in range(len(frame_segs)):
-            if(frame_segs[k].decode() in self.segs):
+            if(frame_segs[k].decode() in frame_final_segs):
                 frame_tensor[:,:,channel_counter] = frame[:,:,k]
                 channel_counter += 1
         # Checks 'NaN' (be careful ,the size might change)
-        frame_tensor = self._check_nan(frame_tensor)
+        frame_tensor = Data_Gen._check_nan(frame_tensor)
         return frame_tensor
         
     # Extract the data from the list of files according to the parameters set.
@@ -372,7 +374,7 @@ class Data_Gen:
                                         # subsample the video
                                         if(frame_counter % self.subsampling == 0):
                                             if('channels' in db[vid_key][frame_key].keys()):
-                                                frame_tensor = self._extract_frame(db[vid_key][frame_key]['channels'], db[vid_key][frame_key].attrs['SEGS'])                              
+                                                frame_tensor = Data_Gen._extract_frame(db[vid_key][frame_key]['channels'], db[vid_key][frame_key].attrs['SEGS'], self.segs)                              
                                                 curr_features += [frame_tensor]
                                                 curr_labels += [label]
                                                 curr_meta += [meta+str(db[vid_key][frame_key].attrs['SIZE_ACR'])+'|'+str(self._to_frame_num(frame_key))]
