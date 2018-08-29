@@ -118,9 +118,8 @@ def train_model(data):
                            training_model.precision_up, training_model.recall_up, training_model.confusion_matrix_up, 
                            training_model.pred, update_it_global, it_global]
                 elif(model_name == 'VGG_16_encoder_decoder'):
-                    ops = [merged, grad_step, training_model.loss, 
-                           training_model.pool5, training_model.conv5_3,
-                           it_global]
+                    ops = [merged, grad_step, training_model.loss,
+                           update_it_global, it_global]
                 metrics = []
                 if(model_name == 'LSTM' or model_name == 'VGG_16'):
                     metrics = [training_model.accuracy, 
@@ -232,11 +231,13 @@ def test_model(data, test_on_training = False, save_features = False):
         saver = tf.train.Saver()
         local_init = [tf.local_variables_initializer(), it_global.initializer]
         
-    # Init the graph with the last checkpoint. 
-    sess = tf.Session(graph=G)
+    # Init the graph with the last checkpoint.
+    config = tf.ConfigProto()
+    config.inter_op_parallelism_threads = config['num_threads'] 
+    sess = tf.Session(graph=G, config=config)
     tf.train.start_queue_runners(sess=sess)
     start = time.time()
-    print(checkpoint_dir)
+    print('Checkpoint directory : {}'.format(checkpoint_dir))
     with sess.as_default():
         if(restore_checkpoint(sess, saver, checkpoint_dir)):
             # Do not forget to reset metrics before using it !
@@ -321,7 +322,7 @@ if __name__ == '__main__':
     parser.add_argument("--test_on_training", help="If this option and testing mode enabled, it tests the model on the training data set", default=False, action='store_true')
     parser.add_argument("--data_dims", nargs="+", help="Set the dimensions of feature ([H, W, C] for pictures) in the data set. None values accepted.")
     parser.add_argument("--batch_memsize", type=int, help="Set the memory size of each batch loaded in memory. (in MB)")
-    parser.add_argument("-m", "--model", type=str, help="Set the neural network model used.", choices=["VGG_16", "LSTM"])
+    parser.add_argument("-m", "--model", type=str, help="Set the neural network model used.", choices=["VGG_16", "LSTM", "VGG_16_encoder_decoder"])
     parser.add_argument("-t", "--num_threads", type=int, help="Set the number of threads used for the preprocessing.")
     parser.add_argument("-c", "--checkpoint", type=str, help="Set the path to the checkpoint directory.")
     parser.add_argument("--tensorboard", type=str, help="Set the path to the tensorboard directory.")
