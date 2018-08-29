@@ -484,11 +484,11 @@ class Data_Gen:
                     size_acr = float(meta_list[2])
                     if(feature_key in self.output_features):
                         if(frame_nb not in self.output_features[feature_key]):
-                            self.output_features[feature_key].update({frame_nb: [size_acr] + features[k]})
+                            self.output_features[feature_key].update({frame_nb: np.concatenate((features[k], [size_acr]))})
                         else:
                             print('Warning: frame {} already exists. Ignored'.format(frame_nb))
                     else:
-                        self.output_features[feature_key] = {frame_nb: features[k]}
+                        self.output_features[feature_key] = {frame_nb: np.concatenate((features[k], [size_acr]))}
                         self.output_labels[feature_key] = labels[k]
                 else:
                     print('Impossible to parse the metadata {}.Feature ignored'.format(meta))

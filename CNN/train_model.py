@@ -233,7 +233,7 @@ def test_model(data, test_on_training = False, save_features = False):
         
     # Init the graph with the last checkpoint.
     config = tf.ConfigProto()
-    config.inter_op_parallelism_threads = config['num_threads'] 
+    #config.inter_op_parallelism_threads = config['num_threads'] 
     sess = tf.Session(graph=G, config=config)
     tf.train.start_queue_runners(sess=sess)
     start = time.time()
