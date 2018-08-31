@@ -1,5 +1,6 @@
 import tensorflow as tf
 import time, os, traceback, argparse
+import tracemalloc
 from datetime import timedelta
 import model, utils, data_gen
 import numpy as np
@@ -76,6 +77,10 @@ def train_model(data):
             training_model = model.Model('VGG_16_encoder_decoder')
             training_model.build_vgg16_encoder_decoder(input_data)
             training_model.construct_results()
+        elif(model_name == 'small_encoder_decoder'):
+            training_model = model.Model('small_encoder_decoder')
+            training_model.build_small_encoder_decoder(input_data)
+            training_model.construct_results()
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         
         with tf.control_dependencies(update_ops):
@@ -95,10 +100,11 @@ def train_model(data):
     sess.run(global_init)
     sess.run(local_init)
     start = time.time()
+    tracemalloc.start()
+    snap_old = tracemalloc.take_snapshot()
     with sess.as_default():
         restore_checkpoint(sess, saver, checkpoint_dir)
-        train_writer = tf.summary.FileWriter(tensorboard_dir+'/train', sess.graph)
-        profiler = tf.profiler.Profiler(sess.graph)
+        train_writer = tf.summary.FileWriter(tensorboard_dir+'/train', sess.graph)        
         for epoch in range(num_epochs):
             # re-init the learning rate at the beginning of each epoch
             learning_rate = config['learning_rate']
@@ -113,20 +119,17 @@ def train_model(data):
             while(features is not None and len(features) > 0):
                 # Create the TF input pipeline and preprocess the data
                 train_data_gen.create_tf_dataset_and_preprocessing(features, labels)
-                get_next_batch = train_data_gen.get_next_batch()
+                next_batch = train_data_gen.get_next_batch()
                 # Computes every ops in each step   
-                if(model_name == 'LSTM' or model_name == 'VGG_16'):
-                    ops = [merged, grad_step, training_model.loss, 
-                           training_model.prob, training_model.accuracy_up,
-                           training_model.precision_up, training_model.recall_up, 
-                           training_model.confusion_matrix_up, 
-                           training_model.pred, 
-                           update_it_global, it_global]
-                elif(model_name == 'VGG_16_encoder_decoder'):
+                if(model_name in {'LSTM', 'VGG_16'}):
+                    ops = [merged, grad_step, training_model.loss, training_model.prob, training_model.accuracy_up,
+                           training_model.precision_up, training_model.recall_up, training_model.confusion_matrix_up, 
+                           training_model.pred, update_it_global, it_global]
+                elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
                     ops = [merged, grad_step, training_model.loss,
                            update_it_global, it_global]
                 metrics = []
-                if(model_name == 'LSTM' or model_name == 'VGG_16'):
+                if(model_name in {'LSTM', 'VGG_16'}):
                     metrics = [training_model.accuracy, 
                                training_model.precision, 
                                training_model.recall, 
@@ -136,7 +139,10 @@ def train_model(data):
                 end_of_data = False
                 while not end_of_data:
                     try:
-                        data_train = sess.run(get_next_batch)
+                        snap_new = tracemalloc.take_snapshot()
+                        print(snap_new.compare_to(snap_old, 'lineno')[0])
+                        snap_old = snap_new
+                        data_train = sess.run(next_batch)
                         if(model_name == 'LSTM'):
                             inputs = {dyn_learning_rate : learning_rate,
                                       input_data : data_train[0][0],
@@ -146,7 +152,7 @@ def train_model(data):
                             inputs = {dyn_learning_rate : learning_rate,
                                       input_data : data_train[0],
                                       input_labels: data_train[1]}
-                        elif(model_name == 'VGG_16_encoder_decoder'):
+                        elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
                             inputs = {dyn_learning_rate : learning_rate,
                                       input_data : data_train[0]}
                         #run_meta = tf.RunMetadata()
@@ -172,20 +178,22 @@ def train_model(data):
                         # plot the variables in TensorBoard
                         train_writer.add_summary(results[0], global_step=results[-1])
                         # plot in console the metrics we want and hyperparameters
-                        if(model_name == 'LSTM' or model_name == 'VGG_16'):
+                        if(model_name in {'LSTM', 'VGG_16'}):
                             print('Epoch {}, Batch {}, step {}, accuracy : {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
                                   metrics_[0], results[2], learning_rate))
-                        elif(model_name == 'VGG_16_encoder_decoder'):
+                        elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
                             print('Epoch {}, Batch {}, step {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
                                   results[2], learning_rate))
                         # save the weigths
-                        if(step % 1000  == 0 and step > 0):
+                        if((step*config['batch_size']) % 500  == 0 and step > 0):
                             saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), it_global)
                             print('Checkpoint saved')
                         step += 1
                     except tf.errors.OutOfRangeError:                            
                         end_of_data = True
                 # Load the next batch of data in memory
+                features.clear()
+                labels.clear()
                 features, labels = train_data_gen.gen_batch_dataset(save_extracted_data=False, 
                                                                     retrieve_data=False,
                                                                     take_random_files=True,
@@ -257,11 +265,12 @@ def test_model(data, test_on_training = False, save_features = False):
             while(features is not None and len(features) > 0):
                 # Create the TF input pipeline and preprocess the data
                 test_data_gen.create_tf_dataset_and_preprocessing(features, labels, metadata)
+                next_batch = test_data_gen.get_next_batch()
                 # Testing loop 
                 end_of_data = False
                 while(not end_of_data):
                     try:
-                        data_test = sess.run(test_data_gen.get_next_batch())
+                        data_test = sess.run(next_batch)
                         if(model_name == 'LSTM'):
                             inputs = {input_data : data_test[0][0],
                                       input_labels: data_test[0][1],
@@ -326,7 +335,7 @@ if __name__ == '__main__':
     parser.add_argument("--test_on_training", help="If this option and testing mode enabled, it tests the model on the training data set", default=False, action='store_true')
     parser.add_argument("--data_dims", nargs="+", help="Set the dimensions of feature ([H, W, C] for pictures) in the data set. None values accepted.")
     parser.add_argument("--batch_memsize", type=int, help="Set the memory size of each batch loaded in memory. (in MB)")
-    parser.add_argument("-m", "--model", type=str, help="Set the neural network model used.", choices=["VGG_16", "LSTM", "VGG_16_encoder_decoder"])
+    parser.add_argument("-m", "--model", type=str, help="Set the neural network model used.", choices=["VGG_16", "LSTM", "VGG_16_encoder_decoder", "small_encoder_decoder"])
     parser.add_argument("-t", "--num_threads", type=int, help="Set the number of threads used for the preprocessing.")
     parser.add_argument("-c", "--checkpoint", type=str, help="Set the path to the checkpoint directory.")
     parser.add_argument("--tensorboard", type=str, help="Set the path to the tensorboard directory.")

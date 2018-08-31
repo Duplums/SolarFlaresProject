@@ -225,7 +225,74 @@ class Model:
             
             return self.output
             
-    
+    def build_small_encoder_decoder(self, data):
+        # data must have size nb_pictures x height x width x nb_channels
+        assert type(data) is tf.Tensor and len(data.shape) == 4
+        with tf.variable_scope(self.name):
+            (nb_pics, height, width, nb_channels) = data.get_shape().as_list()
+            # ENCODER PART
+            self.input_layer = tf.cast(data, dtype=tf.float32)            
+            # CONV3-64 [h, w, c] --> [h, w, 64]
+            self.conv1_1 = self.conv_layer(self.input_layer, [3, 3, nb_channels, 64], 'conv1_1')
+
+            # CONV3-64 [h, w, 64] --> [h, w, 64]
+            self.conv1_2 = self.conv_layer(self.conv1_1, [3, 3, 64, 64], 'conv1_2')
+            
+            # MAX POOLING [h, w, 64] --> [h/2, w/2, 64]
+            self.pool1 = tf.layers.max_pooling2d(inputs=self.conv1_2, name='pool1', pool_size=2, strides=2, padding='same')
+            
+            ################################
+            # CONV3-128 [h/2, w/2, 64] --> [h/2, w/2, 128]
+            self.conv2_1 = self.conv_layer(self.pool1, [3, 3, 64, 128], 'conv2_1')
+
+            # CONV3-128 [h/2, w/2, 128] --> [h/2, w/2, 128]
+            self.conv2_2 = self.conv_layer(self.conv2_1, [3, 3, 128, 128], 'conv2_2')
+     
+            # MAX POOLING [h/2, w/2, 128] --> [h/4, w/4, 128]
+            self.pool2 = tf.layers.max_pooling2d(inputs=self.conv2_2, name='pool2', pool_size=2, strides=2, padding='same')
+            
+            ################################
+            # CONV3-256 [h/4, w/4, 128] --> [h/4, w/4, 256]
+            self.conv3_1 = self.conv_layer(self.pool2, [3, 3, 128, 256], 'conv3_1')
+            
+            # CONV3-256 [h/4, w/4, 256] --> [h/4, w/4, 256]
+            self.conv3_2 = self.conv_layer(self.conv3_1, [3, 3, 256, 256], 'conv3_2')
+            
+            # CONV3-256 [h/4, w/4, 256] --> [h/4, w/4, 256]
+            self.conv3_3 = self.conv_layer(self.conv3_2, [3, 3, 256, 256], 'conv3_3')
+
+            # MAX POOLING [h/4, w/4, 256] --> [h/8, w/8, 256]
+            self.pool3 = tf.layers.max_pooling2d(inputs=self.conv3_3, name='pool3', pool_size=2, strides=2, padding='same')
+            
+            # DECODER PART
+            
+            # UNPOOLING  [h/32, w/32, 512] --> [h/16, w/16, 512]
+            self.unpool3 = tf.image.resize_nearest_neighbor(self.pool3, tf.shape(self.conv3_3)[1:3], name='unpool3')
+            
+            self.unconv3_3 = self.conv_layer(self.unpool3, [3, 3, 256, 256], 'unconv3_3')
+            
+            self.unconv3_2 = self.conv_layer(self.unconv3_3, [3, 3, 256, 256], 'unconv3_2')
+            
+            self.unconv3_1 = self.conv_layer(self.unconv3_2, [3, 3, 256, 128], 'unconv3_1')
+            
+            self.unpool2 = tf.image.resize_nearest_neighbor(self.unconv3_1, tf.shape(self.conv2_2)[1:3], name='unpool2')
+            
+            self.unconv2_2 = self.conv_layer(self.unpool2, [3, 3, 128, 128], 'unconv2_2')
+            
+            self.unconv2_1 = self.conv_layer(self.unconv2_2, [3, 3, 128, 64], 'unconv2_1')
+            
+            self.unpool1 = tf.image.resize_nearest_neighbor(self.unconv2_1, tf.shape(self.conv1_2)[1:3], name='unpool1')
+            
+            self.unconv1_2 = self.conv_layer(self.unpool1, [3, 3, 64, 64], 'unconv1_2')
+            
+            self.unconv1_1 = self.conv_layer(self.unconv1_2, [3, 3, 64, nb_channels], 'unconv1_1')
+            
+            self.output = tf.cast(self.unconv1_1, dtype=tf.float32, name='output')
+            
+            self.model_built = 'small_encoder_decoder'
+            return self.output
+        
+        
     def build_lstm(self, data, seq_length):
         # Data must have shape nb_seqs x max_time x n_inputs
         assert type(data) is tf.Tensor and len(data.shape) == 3
@@ -319,8 +386,11 @@ class Model:
         return acc    
     
     def construct_results(self, labels = None):
-        with tf.variable_scope(self.name):
-            if(self.model_built == 'VGG_16_encoder_decoder'):
+        with tf.variable_scope(self.name, reuse=True):
+            # Quick overview of the input batch
+            tf.summary.scalar('N_input', tf.shape(self.input_layer)[0])
+            tf.summary.scalar('input_size_per_image', tf.reduce_prod(tf.shape(self.input_layer)[1:]))
+            if(self.model_built in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
                 self.loss = tf.reduce_mean(tf.abs(tf.subtract(self.input_layer, self.output)))
                 tf.summary.scalar('Loss', self.loss)
             else:
@@ -343,7 +413,7 @@ class Model:
                                                  [1, self.nb_classes, self.nb_classes, 1])
                 tf.summary.image('confusion', confusion_image)
                 self.vector_summary(self.accuracy_per_class, 'Accuracy_Per_Class')
-    
+            
     # Useful for testing phase
     def reset_metrics(self):
         with tf.variable_scope(self.name):

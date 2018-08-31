@@ -173,6 +173,7 @@ class Data_Gen:
                                         l1_err += np.sum(np.abs(sk.resize(this_frame[:,:,c], first_frame.shape[:2], preserve_range=True)-first_frame[:,:,c]))
                             res[i] += [l1_err/np.product(first_frame.shape[0:2])*len(channels)]
                         except:
+                            sample_time = sample_time[:-1]
                             print('Frame {} not extracted.'.format(frame_key))
                             print(traceback.format_exc())
                     else:
