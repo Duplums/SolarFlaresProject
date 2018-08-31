@@ -308,6 +308,9 @@ def test_model(data, test_on_training = False, save_features = False):
                 else:
                     np.save(checkpoint_dir+'/testing_confusion_matrix', metrics_[4])
                 # Updates the data and the batch counter
+                features.clear()
+                labels.clear()
+                metadata.clear()
                 features, labels, metadata = test_data_gen.gen_batch_dataset(save_extracted_data = False, 
                                                                    retrieve_data = False,
                                                                    take_random_files = False, 
