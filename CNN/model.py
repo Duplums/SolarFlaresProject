@@ -386,7 +386,10 @@ class Model:
         return acc    
     
     def construct_results(self, labels = None):
-        with tf.variable_scope(self.name):
+        with tf.variable_scope(self.name, reuse=True):
+            # Quick overview of the input batch
+            tf.summary.scalar('N_input', tf.shape(self.input_layer)[0])
+            tf.summary.scalar('input_size_per_image', tf.reduce_prod(tf.shape(self.input_layer)[1:]))
             if(self.model_built in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
                 self.loss = tf.reduce_mean(tf.abs(tf.subtract(self.input_layer, self.output)))
                 tf.summary.scalar('Loss', self.loss)
@@ -410,7 +413,7 @@ class Model:
                                                  [1, self.nb_classes, self.nb_classes, 1])
                 tf.summary.image('confusion', confusion_image)
                 self.vector_summary(self.accuracy_per_class, 'Accuracy_Per_Class')
-    
+            
     # Useful for testing phase
     def reset_metrics(self):
         with tf.variable_scope(self.name):

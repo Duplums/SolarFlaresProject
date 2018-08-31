@@ -1,5 +1,6 @@
 import tensorflow as tf
 import time, os, traceback, argparse
+import tracemalloc
 from datetime import timedelta
 import model, utils, data_gen
 import numpy as np
@@ -81,6 +82,7 @@ def train_model(data):
             training_model.build_small_encoder_decoder(input_data)
             training_model.construct_results()
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        
         with tf.control_dependencies(update_ops):
             optimizer = tf.train.AdamOptimizer(learning_rate=dyn_learning_rate)
             grads = optimizer.compute_gradients(training_model.loss)
@@ -98,10 +100,11 @@ def train_model(data):
     sess.run(global_init)
     sess.run(local_init)
     start = time.time()
+    tracemalloc.start()
+    snap_old = tracemalloc.take_snapshot()
     with sess.as_default():
         restore_checkpoint(sess, saver, checkpoint_dir)
-        train_writer = tf.summary.FileWriter(tensorboard_dir+'/train', sess.graph)
-        profiler = tf.profiler.Profiler(sess.graph)
+        train_writer = tf.summary.FileWriter(tensorboard_dir+'/train', sess.graph)        
         for epoch in range(num_epochs):
             # re-init the learning rate at the beginning of each epoch
             learning_rate = config['learning_rate']
@@ -136,6 +139,9 @@ def train_model(data):
                 end_of_data = False
                 while not end_of_data:
                     try:
+                        snap_new = tracemalloc.take_snapshot()
+                        print(snap_new.compare_to(snap_old, 'lineno')[0])
+                        snap_old = snap_new
                         data_train = sess.run(next_batch)
                         if(model_name == 'LSTM'):
                             inputs = {dyn_learning_rate : learning_rate,
@@ -149,19 +155,19 @@ def train_model(data):
                         elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
                             inputs = {dyn_learning_rate : learning_rate,
                                       input_data : data_train[0]}
-                        run_meta = tf.RunMetadata()
+                        #run_meta = tf.RunMetadata()
                         # runs the optimization and updates the metrics
-                        results = sess.run(ops, feed_dict=inputs, 
-                                           options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
-                                           run_metadata=run_meta)
-                        profiler.add_step(step, run_meta)
-                        option_builder = tf.profiler.ProfileOptionBuilder
+                        results = sess.run(ops, feed_dict=inputs)
+                        #                   options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
+                        #                   run_metadata=run_meta)
+                        #profiler.add_step(step, run_meta)
+                        #option_builder = tf.profiler.ProfileOptionBuilder
                         
-                        opts = (option_builder(option_builder.time_and_memory()).
-                            with_step(-1). # with -1, should compute the average of all registered steps.
-                            with_file_output('profiler_cnn_training_{}.txt'.format(model_name)).
-                            select(['micros','bytes','occurrence']).order_by('bytes').
-                            build())
+                        #opts = (option_builder(option_builder.time_and_memory()).
+                        #    with_step(-1). # with -1, should compute the average of all registered steps.
+                        #    with_file_output('test.txt').
+                        #    select(['micros','bytes','occurrence']).order_by('bytes').
+                        #    build())
                         # Profiling infos about ops are saved in 'test-%s.txt' % FLAGS.out
                         #profiler.profile_operations(options=opts)
                         # computes the metrics
@@ -179,13 +185,15 @@ def train_model(data):
                             print('Epoch {}, Batch {}, step {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
                                   results[2], learning_rate))
                         # save the weigths
-                        if(step % 100  == 0 and step > 0):
+                        if((step*config['batch_size']) % 500  == 0 and step > 0):
                             saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), it_global)
                             print('Checkpoint saved')
                         step += 1
                     except tf.errors.OutOfRangeError:                            
                         end_of_data = True
                 # Load the next batch of data in memory
+                features.clear()
+                labels.clear()
                 features, labels = train_data_gen.gen_batch_dataset(save_extracted_data=False, 
                                                                     retrieve_data=False,
                                                                     take_random_files=True,
@@ -272,8 +280,7 @@ def test_model(data, test_on_training = False, save_features = False):
                                       input_labels: data_test[1]}
                         ops = [testing_model.accuracy_up, testing_model.precision_up,
                                testing_model.recall_up, testing_model.confusion_matrix_up,
-                               testing_model.prob, update_it_global, it_global, 
-                               testing_model.pool5, testing_model.spp]
+                               testing_model.prob, update_it_global, it_global]
                         
                         # we also want the output of our network
                         if(save_features):
@@ -360,5 +367,5 @@ if __name__ == '__main__':
     if(args.testing):
         test_model(data, args.test_on_training, args.save_features)
     else:
-        train_model(data)
+        t = train_model(data)
 
