@@ -328,7 +328,7 @@ if __name__ == '__main__':
     parser.add_argument("--test_on_training", help="If this option and testing mode enabled, it tests the model on the training data set", default=False, action='store_true')
     parser.add_argument("--data_dims", nargs="+", help="Set the dimensions of feature ([H, W, C] for pictures) in the data set. None values accepted.")
     parser.add_argument("--batch_memsize", type=int, help="Set the memory size of each batch loaded in memory. (in MB)")
-    parser.add_argument("-m", "--model", type=str, help="Set the neural network model used.", choices=["VGG_16", "LSTM", "VGG_16_encoder_decoder"])
+    parser.add_argument("-m", "--model", type=str, help="Set the neural network model used.", choices=["VGG_16", "LSTM", "VGG_16_encoder_decoder", "small_encoder_decoder"])
     parser.add_argument("-t", "--num_threads", type=int, help="Set the number of threads used for the preprocessing.")
     parser.add_argument("-c", "--checkpoint", type=str, help="Set the path to the checkpoint directory.")
     parser.add_argument("--tensorboard", type=str, help="Set the path to the tensorboard directory.")
