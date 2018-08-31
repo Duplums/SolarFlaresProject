@@ -404,7 +404,7 @@ class Data_Gen:
                                 curr_features = []
                                 curr_labels = []
                                 for f_key in db['features'].keys():
-                                    curr_features += [np.array(db['features'][f_key])]
+                                    curr_features += [np.array(db['features'][f_key])[:25,:]] # // TO BE CHANGED //
                                     curr_labels += [np.array(db['labels'][f_key])]
                                 if(vid_infos):
                                     metadata += list(db['features'].keys())
@@ -573,12 +573,13 @@ class Data_Gen:
     def create_tf_dataset_and_preprocessing(self, features, labels, metadata=None):
         print('Constructing the new TensorFlow input pipeline on device {}...'.format(self.tf_device))
         with self.graph.as_default(), tf.device(self.tf_device):
+            
             if(metadata is None):
                 output_types = (tf.float32, tf.int32)
-                output_shapes = (tf.TensorShape([None, None, self.data_dims[2]]), tf.TensorShape([]))
+                output_shapes = (tf.TensorShape([None for k in range(len(self.data_dims)-1)] + [self.data_dims[-1]]), tf.TensorShape([]))
             else:
                 output_types = (tf.float32, tf.int32, tf.string)
-                output_shapes = (tf.TensorShape([None, None, self.data_dims[2]]), tf.TensorShape([]), tf.TensorShape([]))
+                output_shapes = (tf.TensorShape([None for k in range(len(self.data_dims)-1)] + [self.data_dims[-1]]), tf.TensorShape([]), tf.TensorShape([]))
 
             self.dataset = tf.data.Dataset.from_generator(lambda: self.generator(features, labels, metadata),
                                                       output_types = output_types,
@@ -604,7 +605,7 @@ class Data_Gen:
     
     def get_next_batch(self):
         if(self.database_name == 'SF_LSTM'):
-            return self.data_iterator.get_next(), self.seq_length_iterator.get_next()
+            return (self.data_iterator.get_next(), self.seq_length_iterator.get_next())
         else:
             return self.data_iterator.get_next()
     
