@@ -76,6 +76,10 @@ def train_model(data):
             training_model = model.Model('VGG_16_encoder_decoder')
             training_model.build_vgg16_encoder_decoder(input_data)
             training_model.construct_results()
+        elif(model_name == 'small_encoder_decoder'):
+            training_model = model.Model('small_encoder_decoder')
+            training_model.build_small_encoder_decoder(input_data)
+            training_model.construct_results()
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
             optimizer = tf.train.AdamOptimizer(learning_rate=dyn_learning_rate)
@@ -113,15 +117,15 @@ def train_model(data):
                 # Create the TF input pipeline and preprocess the data
                 train_data_gen.create_tf_dataset_and_preprocessing(features, labels)
                 # Computes every ops in each step   
-                if(model_name == 'LSTM' or model_name == 'VGG_16'):
+                if(model_name in {'LSTM', 'VGG_16'}):
                     ops = [merged, grad_step, training_model.loss, training_model.prob, training_model.accuracy_up,
                            training_model.precision_up, training_model.recall_up, training_model.confusion_matrix_up, 
                            training_model.pred, update_it_global, it_global]
-                elif(model_name == 'VGG_16_encoder_decoder'):
+                elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
                     ops = [merged, grad_step, training_model.loss,
                            update_it_global, it_global]
                 metrics = []
-                if(model_name == 'LSTM' or model_name == 'VGG_16'):
+                if(model_name in {'LSTM', 'VGG_16'}):
                     metrics = [training_model.accuracy, 
                                training_model.precision, 
                                training_model.recall, 
@@ -141,7 +145,7 @@ def train_model(data):
                             inputs = {dyn_learning_rate : learning_rate,
                                       input_data : data_train[0],
                                       input_labels: data_train[1]}
-                        elif(model_name == 'VGG_16_encoder_decoder'):
+                        elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
                             inputs = {dyn_learning_rate : learning_rate,
                                       input_data : data_train[0]}
                         run_meta = tf.RunMetadata()
@@ -167,10 +171,10 @@ def train_model(data):
                         # plot the variables in TensorBoard
                         train_writer.add_summary(results[0], global_step=results[-1])
                         # plot in console the metrics we want and hyperparameters
-                        if(model_name == 'LSTM' or model_name == 'VGG_16'):
+                        if(model_name in {'LSTM', 'VGG_16'}):
                             print('Epoch {}, Batch {}, step {}, accuracy : {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
                                   metrics_[0], results[2], learning_rate))
-                        elif(model_name == 'VGG_16_encoder_decoder'):
+                        elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
                             print('Epoch {}, Batch {}, step {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
                                   results[2], learning_rate))
                         # save the weigths
