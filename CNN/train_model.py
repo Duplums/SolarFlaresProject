@@ -112,6 +112,7 @@ def train_model(data):
             while(features is not None and len(features) > 0):
                 # Create the TF input pipeline and preprocess the data
                 train_data_gen.create_tf_dataset_and_preprocessing(features, labels)
+                next_batch = train_data_gen.get_next_batch()
                 # Computes every ops in each step   
                 if(model_name == 'LSTM' or model_name == 'VGG_16'):
                     ops = [merged, grad_step, training_model.loss, training_model.prob, training_model.accuracy_up,
@@ -131,7 +132,7 @@ def train_model(data):
                 end_of_data = False
                 while not end_of_data:
                     try:
-                        data_train = sess.run(train_data_gen.get_next_batch())
+                        data_train = sess.run(next_batch)
                         if(model_name == 'LSTM'):
                             inputs = {dyn_learning_rate : learning_rate,
                                       input_data : data_train[0][0],
@@ -150,15 +151,15 @@ def train_model(data):
                                            options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
                                            run_metadata=run_meta)
                         profiler.add_step(step, run_meta)
-        #                option_builder = tf.profiler.ProfileOptionBuilder
-        #                
-        #                opts = (option_builder(option_builder.time_and_memory()).
-        #                    with_step(-1). # with -1, should compute the average of all registered steps.
-        #                    with_file_output('test.txt').
-        #                    select(['micros','bytes','occurrence']).order_by('bytes').
-        #                    build())
-        #                # Profiling infos about ops are saved in 'test-%s.txt' % FLAGS.out
-        #                profiler.profile_operations(options=opts)
+                        option_builder = tf.profiler.ProfileOptionBuilder
+                        
+                        opts = (option_builder(option_builder.time_and_memory()).
+                            with_step(-1). # with -1, should compute the average of all registered steps.
+                            with_file_output('profiler_cnn_training_{}.txt'.format(model_name)).
+                            select(['micros','bytes','occurrence']).order_by('bytes').
+                            build())
+                        # Profiling infos about ops are saved in 'test-%s.txt' % FLAGS.out
+                        #profiler.profile_operations(options=opts)
                         # computes the metrics
                         metrics_ = sess.run(metrics)
                         # updates the learning rate and the old_loss
@@ -174,7 +175,7 @@ def train_model(data):
                             print('Epoch {}, Batch {}, step {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
                                   results[2], learning_rate))
                         # save the weigths
-                        if(step % 1000  == 0):
+                        if(step % 100  == 0 and step > 0):
                             saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), it_global)
                             print('Checkpoint saved')
                         step += 1
@@ -252,11 +253,12 @@ def test_model(data, test_on_training = False, save_features = False):
             while(features is not None and len(features) > 0):
                 # Create the TF input pipeline and preprocess the data
                 test_data_gen.create_tf_dataset_and_preprocessing(features, labels, metadata)
+                next_batch = test_data_gen.get_next_batch()
                 # Testing loop 
                 end_of_data = False
                 while(not end_of_data):
                     try:
-                        data_test = sess.run(test_data_gen.get_next_batch())
+                        data_test = sess.run(next_batch)
                         if(model_name == 'LSTM'):
                             inputs = {input_data : data_test[0][0],
                                       input_labels: data_test[0][1],
