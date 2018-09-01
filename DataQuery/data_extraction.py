@@ -239,8 +239,14 @@ class Data_Downloader:
                                     if(frame_key == sorted(list(db[vid_key].keys()), 
                                                            key=lambda frame_key : float(frame_key[5:]))[-1]):
                                         last_frame = Data_Downloader._check_nan(db[vid_key][frame_key]['channels'])
-                                    max_size = max(max_size, np.prod(db[vid_key][frame_key]['channels'].shape[0:2]))
+                                    max_size = max(max_size, )
                                     min_size = min(min_size, np.prod(db[vid_key][frame_key]['channels'].shape[0:2]))
+                                    if(np.prod(db[vid_key][frame_key]['channels'].shape[0:2]) > max_size):
+                                        max_size = np.prod(db[vid_key][frame_key]['channels'].shape[0:2])
+                                        max_frame_size = db[vid_key][frame_key]['channels'].shape[0:2]
+                                    if(np.prod(db[vid_key][frame_key]['channels'].shape[0:2]) < min_size):
+                                        min_size = np.prod(db[vid_key][frame_key]['channels'].shape[0:2])
+                                        min_frame_size = db[vid_key][frame_key]['channels'].shape[0:2]
                                     nb_channels = db[vid_key][frame_key]['channels'].shape[2]
                                     avg_size += db[vid_key][frame_key]['channels'].shape[0:2]
                                     nb_frames += 1
@@ -266,6 +272,8 @@ class Data_Downloader:
                 break
         out.write('NB OF VIDEOS : {}\n'.format(glob_counter))
         out.write('NB OF FRAMES : {}\n'.format(sum(results['nb_frames'])))
+        out.write('MAX FRAME SIZE: {}\n'.format(max_frame_size))
+        out.write('MIN FRAME SIZE: {}\n'.format(min_frame_size))
         out.write('NB OF FRAMES / VIDEO:\n')
         out.write('\t'+str(stats.describe(results['nb_frames'])))
         out.write('\nSIZE OF VIDEOS:\n')

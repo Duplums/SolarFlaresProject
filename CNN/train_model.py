@@ -3,6 +3,7 @@ import time, os, traceback, argparse
 from datetime import timedelta
 import model, utils, data_gen
 import numpy as np
+import tracemalloc
 
 # config: dict containing every info for training mode
 # train_data_gen: load in RAM the data when needed
@@ -101,7 +102,7 @@ def train_model(data):
     start = time.time()
     with sess.as_default():
         restore_checkpoint(sess, saver, checkpoint_dir)
-        train_writer = tf.summary.FileWriter(tensorboard_dir+'/train', sess.graph)        
+        train_writer = tf.summary.FileWriter(tensorboard_dir, sess.graph)        
         for epoch in range(num_epochs):
             # re-init the learning rate at the beginning of each epoch
             learning_rate = config['learning_rate']
@@ -192,6 +193,7 @@ def train_model(data):
                                                                     get_metadata=False)
                 batch_it += 1
                 saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), it_global) 
+            # Re-init the files in the data loader queue after each epoch
             train_data_gen.init_paths_to_file()
     end = time.time()
     print("Time usage: " + str(timedelta(seconds=int(round(end-start)))))
@@ -249,6 +251,7 @@ def test_model(data, test_on_training = False, save_features = False):
             sess.run(local_init)
             sess.run(testing_model.reset_metrics())
             # Load the first batch of data in memory
+            old_snap = tracemalloc.take_snapshot()
             features, labels, metadata = test_data_gen.gen_batch_dataset(save_extracted_data = False, 
                                                                          retrieve_data =  False,
                                                                          take_random_files = False,
@@ -256,6 +259,9 @@ def test_model(data, test_on_training = False, save_features = False):
             batch_it = 0
             while(features is not None and len(features) > 0):
                 # Create the TF input pipeline and preprocess the data
+                new_snap = tracemalloc.take_snapshot()
+                print(new_snap.compare_to(old_snap, 'lineno'))
+                old_snap = new_snap
                 test_data_gen.create_tf_dataset_and_preprocessing(features, labels, metadata)
                 next_batch = test_data_gen.get_next_batch()
                 # Testing loop 
@@ -355,6 +361,7 @@ if __name__ == '__main__':
                 utils.config[data][key] = data_dims
             elif(key!='data_type' and key!='testing'):
                 utils.config[data][key] = val
+    tracemalloc.start()
     tf.reset_default_graph()
     if(args.testing):
         test_model(data, args.test_on_training, args.save_features)

@@ -106,7 +106,9 @@ class Data_Gen:
             print('Maximum size found : {}'.format(self.max_pic_size))
     
     def init_paths_to_file(self):
-         for path in self.main_path:
+        self.paths_to_file = []
+        self.size_of_files = []
+        for path in self.main_path:
             if os.path.exists(path):
                 for file in os.listdir(path):   
                     path_to_file = os.path.join(path, file)
