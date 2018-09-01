@@ -1,6 +1,5 @@
 import tensorflow as tf
 import time, os, traceback, argparse
-import tracemalloc
 from datetime import timedelta
 import model, utils, data_gen
 import numpy as np
@@ -100,21 +99,17 @@ def train_model(data):
     sess.run(global_init)
     sess.run(local_init)
     start = time.time()
-    tracemalloc.start()
-    snap_old = tracemalloc.take_snapshot()
     with sess.as_default():
         restore_checkpoint(sess, saver, checkpoint_dir)
         train_writer = tf.summary.FileWriter(tensorboard_dir+'/train', sess.graph)        
         for epoch in range(num_epochs):
             # re-init the learning rate at the beginning of each epoch
             learning_rate = config['learning_rate']
-            # re-init paths_to_file
-            train_data_gen.init_paths_to_file()
             # training loop 
-            features, labels, metadata = train_data_gen.gen_batch_dataset(save_extracted_data=False, 
+            features, labels = train_data_gen.gen_batch_dataset(save_extracted_data=False, 
                                                                              retrieve_data=False,
-                                                                             take_random_files = True,
-                                                                             get_metadata=True)
+                                                                             take_random_files = False,
+                                                                             get_metadata=False)
             batch_it = 0
             while(features is not None and len(features) > 0):
                 # Create the TF input pipeline and preprocess the data
@@ -139,9 +134,6 @@ def train_model(data):
                 end_of_data = False
                 while not end_of_data:
                     try:
-                        snap_new = tracemalloc.take_snapshot()
-                        print(snap_new.compare_to(snap_old, 'lineno')[0])
-                        snap_old = snap_new
                         data_train = sess.run(next_batch)
                         if(model_name == 'LSTM'):
                             inputs = {dyn_learning_rate : learning_rate,
@@ -199,8 +191,8 @@ def train_model(data):
                                                                     take_random_files=True,
                                                                     get_metadata=False)
                 batch_it += 1
-            saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), it_global)
-            
+                saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), it_global) 
+            train_data_gen.init_paths_to_file()
     end = time.time()
     print("Time usage: " + str(timedelta(seconds=int(round(end-start)))))
     return training_model
