@@ -109,7 +109,7 @@ def train_model(data):
             # training loop 
             features, labels = train_data_gen.gen_batch_dataset(save_extracted_data=False, 
                                                                              retrieve_data=False,
-                                                                             take_random_files = False,
+                                                                             take_random_files = True,
                                                                              get_metadata=False)
             batch_it = 0
             while(features is not None and len(features) > 0):
