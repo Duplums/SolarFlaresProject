@@ -2,8 +2,7 @@
 '''
 This class aims to create a list of files where we can find the data and to manage
 the computer memory. The data memory size (in MB) is given and should not be exceeded.
-It also builds the input pipeline for the whole TensorFlow computation and thus 
-a graph is needed.
+It also builds the input pipeline for the whole TensorFlow computation.
 '''
 
 import os, re, pickle, traceback, math, drms, sys
@@ -43,7 +42,6 @@ class Data_Gen:
     labels = None
     metadata = None
     seq_length_iterator = None
-    iterators = None
     training_mode = None
     
     def __init__(self, data_name, config, training=True, max_pic_size=None):
@@ -122,7 +120,7 @@ class Data_Gen:
                             self.paths_to_file += [path_to_file]
                             self.size_of_files += [size/float(self.subsampling)]
                         else:
-                            print('File {} will not fit in memory. Ignored'.format(path_to_file))
+                            print('Warning: file {} [{}MB] will not fit in memory (> {}MB). Ignored'.format(file, size, self.memory_size))
                     else:
                         print('Directory \'{}\' ignored.'.format(path_to_file))
             else:
@@ -331,11 +329,12 @@ class Data_Gen:
         features = []
         labels = []
         metadata = []
+        memory_used = 0
         for file_path in files_to_extract:
             if(os.path.isfile(file_path)):
                 try:
                     with h5.File(file_path, 'r') as db:
-                        print('Beginning to extract data from {}'.format(file_path))
+                        print('Beginning to extract data from {}'.format(os.path.basename(file_path)))
                         if(self.database_name == 'SF'):
                             curr_features = None
                             curr_labels = None
@@ -359,6 +358,8 @@ class Data_Gen:
                                     if(vid_infos):
                                       with open(metadata_path, 'rb') as m:
                                         curr_meta = pickle.load(m)
+                                    memory_used += os.path.getsize(curr_features)
+                                    memory_used += os.path.getsize(curr_labels)
                                     print('Data retrieved from {}, {}'.format(features_name, labels_name))
                                     if(vid_infos):
                                         print('Meta data retrieved from {}'.format(metadata_name))
@@ -384,7 +385,8 @@ class Data_Gen:
                                                 curr_features += [frame_tensor]
                                                 curr_labels += [label]
                                                 curr_meta += [meta+str(db[vid_key][frame_key].attrs['SIZE_ACR'])+'|'+str(self._to_frame_num(frame_key))]
-                                print('Data extracted from file {}.'.format(file_path))
+                                                memory_used += frame_tensor.nbytes
+                                print('Data extracted.')
                                 if(saving):
                                     try:
                                         with open(features_path, 'wb') as f:
@@ -407,12 +409,16 @@ class Data_Gen:
                                     print('Warning: no meta data available for data base {}'.format(self.database_name))
                                 curr_features = np.array(db['features'])
                                 curr_labels = np.array(db['labels'])
+                                memory_used += curr_features.nbytes + curr_labels.nbytes
+                                
                             elif(self.database_name == 'SF_LSTM'):
                                 curr_features = []
                                 curr_labels = []
                                 for f_key in db['features'].keys():
                                     curr_features += [np.array(db['features'][f_key])[:25,:]] # // TO BE CHANGED //
                                     curr_labels += [np.array(db['labels'][f_key])]
+                                    memory_used += np.array(db['features'][f_key])[:25,:].nbytes
+                                    memory_used += np.array(db['labels'][f_key]).nbytes
                                 if(vid_infos):
                                     metadata += list(db['features'].keys())
                             
@@ -437,6 +443,8 @@ class Data_Gen:
         if(vid_infos):
             self.metadata= metadata
         
+        print('Memory used: {}MB'.format(memory_used/(1024*1024)))
+        
         return (len(self.features) == 0)
     
     def gen_batch_dataset(self, 
@@ -453,7 +461,7 @@ class Data_Gen:
             # Heuristic to know which files we will consider
             files_index = np.argsort(self.size_of_files)
         
-        # Store the file paths according to their size (by taking random files or 
+        # Stores the file paths according to their size (by taking random files or 
         # by using a heuristic inspired from the knapspack pb).
         files_in_batch= []
         counter = 0
@@ -470,19 +478,20 @@ class Data_Gen:
         
         print('Files to be loaded in memory : ')
         for f in files_in_batch:
-            print('\t - {} => {}MB'.format(f, math.ceil(os.path.getsize(f)/(1024.0*1024))))
-        # Load the data in memory
-        self._extract_data(files_in_batch, save_extracted_data, retrieve_data, vid_infos = get_metadata)
-        print('Data set loaded.')
-    
-    
-    # We assume that each metadata are formatted as : '{name_file}|{name_vid}|{active region size}|{frame_nb}'
-    # The active region size is added manually at the beginning of every features.
-    def add_output_features(self, features, labels, metadata):
-        assert len(features) == len(labels) == len(metadata)
+            print('\t - {} => {}MB'.format(os.path.basename(f), math.ceil(os.path.getsize(f)/(1024.0*1024))))
         
-        for k in range(len(metadata)):
-            meta = metadata[k].decode()
+        # Loads the data in memory
+        self._extract_data(files_in_batch, save_extracted_data, retrieve_data, vid_infos = get_metadata)
+        print('{} features extracted.\n'.format(len(self.features)))
+
+    
+    # Adds the features extracted by the Neural Network to the 'output_features' list.
+    # The active region size is added manually at the beginning of every feature.
+    def add_output_features(self, features):
+        assert len(features) == len(self.labels) == len(self.metadata)
+        
+        for k in range(len(self.metadata)):
+            meta = self.metadata[k].decode()
             if(re.match('.+\|.+\|.+\|.+', meta)):
                 meta_list = re.split(r'\|', meta)
                 if(len(meta_list) == 4):
@@ -496,7 +505,7 @@ class Data_Gen:
                             print('Warning: frame {} already exists. Ignored'.format(frame_nb))
                     else:
                         self.output_features[feature_key] = {frame_nb: np.concatenate((features[k], [size_acr]))}
-                        self.output_labels[feature_key] = labels[k]
+                        self.output_labels[feature_key] = self.labels[k]
                 else:
                     print('Impossible to parse the metadata {}.Feature ignored'.format(meta))
             else:

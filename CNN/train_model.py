@@ -35,18 +35,22 @@ def train_model(data):
     checkpoint_dir = config['checkpoint']
     tensorboard_dir= config['tensorboard']
     learning_rate = config['learning_rate'] # initial learning rate
-    epsilon = config['tolerance'] # useful for updating learning rate
+    #epsilon = config['tolerance'] # useful for updating learning rate
     nb_classes = config['nb_classes']
     loss_weights = config['loss_weights']
     num_epochs = config['num_epochs']
-    checkpoint_iter = config['checkpoint_iter']
+    #checkpoint_iter = config['checkpoint_iter']
     model_name = config['model']
-    # Training graph
+   
+    # Creation of the training graph
     G = tf.Graph()
-    
     with G.as_default():
+        
+        # Input TF pipeline
         train_data_gen = data_gen.Data_Gen(data, config, max_pic_size=[3000,3000])
         train_data_gen.create_tf_dataset_and_preprocessing(use_metadata = False)
+        
+        
         dyn_learning_rate = tf.placeholder(dtype=tf.float32,
                                            shape=[],
                                            name='learning_rate')
@@ -83,6 +87,27 @@ def train_model(data):
             grad_step = optimizer.apply_gradients(grads)
         
         merged = tf.summary.merge_all()
+        
+        # Adds the gradient and up_metrics operators
+        if(model_name in {'LSTM', 'VGG_16'}):
+            ops = [merged, grad_step, training_model.loss, 
+                   training_model.prob, training_model.accuracy_up,
+                   training_model.precision_up, training_model.recall_up, 
+                   training_model.confusion_matrix_up, 
+                   training_model.pred]
+        elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
+            ops = [merged, grad_step, training_model.loss]
+        
+        # Adds the global iteration counter    
+        ops += [update_it_global]
+        if(model_name in {'LSTM', 'VGG_16'}):
+            metrics_ops = [training_model.accuracy, 
+                           training_model.precision, 
+                           training_model.recall, 
+                           training_model.confusion_matrix,
+                           training_model.accuracy_per_class]
+        else:
+            metrics_ops = []
         global_init = tf.global_variables_initializer() # Every weights
         local_init = tf.local_variables_initializer() # For metrics
         saver = tf.train.Saver()
@@ -103,16 +128,13 @@ def train_model(data):
             if(epoch % 2 == 1):
                 learning_rate = learning_rate/2
             
-            # Re-init the files in the data loader queue after each epoch
-            train_data_gen.init_paths_to_file()
-            
             batch_it = 0
             end_of_batch = False
             while(not end_of_batch):
                 # Generates the next batch of data and loads it in memory
                 end_of_batch = train_data_gen.gen_batch_dataset(save_extracted_data=False, 
                                                  retrieve_data=False,
-                                                 take_random_files = False,
+                                                 take_random_files = True,
                                                  get_metadata=False)
                 
                 # Initializes the iterator on the current batch 
@@ -120,28 +142,6 @@ def train_model(data):
                 if(model_name == 'LSTM'):
                     sess.run(train_data_gen.seq_length_iterator.initializer)
                     
-                
-                # Adds the gradient and up_metrics operators
-                if(model_name in {'LSTM', 'VGG_16'}):
-                    ops = [merged, grad_step, training_model.loss, 
-                           training_model.prob, training_model.accuracy_up,
-                           training_model.precision_up, training_model.recall_up, 
-                           training_model.confusion_matrix_up, 
-                           training_model.pred]
-                elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
-                    ops = [merged, grad_step, training_model.loss]
-                     
-                # Adds the global iteration counter    
-                ops += [update_it_global]
-                
-                if(model_name in {'LSTM', 'VGG_16'}):
-                    metrics_ops = [training_model.accuracy, 
-                               training_model.precision, 
-                               training_model.recall, 
-                               training_model.confusion_matrix,
-                               training_model.accuracy_per_class]
-                else:
-                    metrics_ops = []
                 # Begins to load the data into the input TF pipeline
                 step = 0
                 end_of_data = False
@@ -172,140 +172,168 @@ def train_model(data):
                 
                 # Saves the weights 
                 saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), global_counter) 
+                print('Weights saved at iteration {}'.format(global_counter))
                 batch_it += 1
+            
+            # Re-init the files in the data loader queue after each epoch
+            train_data_gen.init_paths_to_file()
 
     end = time.time()
     print("Time usage: " + str(timedelta(seconds=int(round(end-start)))))
     return training_model
 
 # Test the model created during the training phase. 
-# If 'save_features' == True, save the features extracted
-# by the CNN as a list of Tensor (np array) of dimension:
-# nb_time_step x n_features where n_features = output space dim
+# If 'save_features' == True, saves the features extracted
+# the neural network (CNN, LSTM or autoencoder)
             
 def test_model(data, test_on_training = False, save_features = False):
+    
     config = utils.config[data]
     checkpoint_dir = config['checkpoint']
     nb_classes = config['nb_classes']
     model_name = config['model']
-    # Testing graph
+    
+    # Creation of the training graph
     G = tf.Graph()
-    test_data_gen = data_gen.Data_Gen(data, config, G, training=test_on_training,
-                                      max_pic_size=[3000,3000])
-    with G.as_default():        
-        input_data = tf.placeholder(dtype=tf.float32,
-                                    shape=[None]+config['data_dims'],
-                                    name='data')
-        input_labels = tf.placeholder(dtype=tf.int32,
-                                      shape=[None],
-                                      name='labels')
+    with G.as_default():
+        # Input TF pipeline
+        
+        test_data_gen = data_gen.Data_Gen(data, config, training = test_on_training, 
+                                           max_pic_size=[3000,3000])
+        test_data_gen.create_tf_dataset_and_preprocessing(use_metadata = True)
+        
+        # input_data[0] == features (and input_data[1] == labels, if any)
         if(model_name == 'LSTM'):
-            input_seq_length = tf.placeholder(dtype=tf.int32,
-                                              shape=[None],
-                                              name='seq_length')
+            input_data, input_seq_length = test_data_gen.get_next_batch()
+        else:
+            input_data = test_data_gen.get_next_batch()        
         
         it_global = tf.Variable(tf.constant(0, shape=[], dtype=tf.int32), trainable=False)
-        update_it_global = tf.assign_add(it_global, tf.shape(input_data)[0]) 
+        update_it_global = tf.assign_add(it_global, tf.shape(input_data[0])[0]) 
         if(model_name == 'VGG_16'):
             testing_model = model.Model('VGG_16', nb_classes, training_mode=False)
-            testing_model.build_vgg16_like(input_data)
+            testing_model.build_vgg16_like(input_data[0])
+            testing_model.construct_results(input_data[1])
         elif(model_name == 'LSTM'):
             testing_model = model.Model('LSTM', nb_classes, training_mode=False)
-            testing_model.build_lstm(input_data, input_seq_length)
+            testing_model.build_lstm(input_data[0], input_seq_length)
+            testing_model.construct_results(input_data[1])
+        elif(model_name == 'VGG_16_encoder_decoder'):
+            testing_model = model.Model('VGG_16_encoder_decoder', training_mode=False)
+            testing_model.build_vgg16_encoder_decoder(input_data[0])
+            testing_model.construct_results()
+        elif(model_name == 'small_encoder_decoder'):
+            testing_model = model.Model('small_encoder_decoder', training_mode=False)
+            testing_model.build_small_encoder_decoder(input_data[0])
+            testing_model.construct_results()
         
-        testing_model.construct_results(input_labels)
-        saver = tf.train.Saver()
+        # Adds the up_metrics operators
+        if(model_name in {'LSTM', 'VGG_16'}):
+            ops = [testing_model.accuracy_up,
+                   testing_model.precision_up, 
+                   testing_model.recall_up, 
+                   testing_model.confusion_matrix_up, 
+                   testing_model.pred]
+        elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
+            ops = [testing_model.loss]
+        
+        # Adds the global iteration counter    
+        ops += [update_it_global]
+        if(model_name in {'LSTM', 'VGG_16'}):
+            metrics_ops = [testing_model.accuracy, 
+                           testing_model.precision, 
+                           testing_model.recall, 
+                           testing_model.confusion_matrix,
+                           testing_model.accuracy_per_class]
+        else:
+            metrics_ops = []
+        
+        # Selects the features that need to be saved
+        if(save_features):
+            if(model_name == 'VGG_16'):
+                ops += [testing_model.dense2]
+            elif(model_name == 'LSTM'):
+                ops += [testing_model.output]
+                
+#   TODO LIST:                
+#            elif(model_name == 'VGG_16_encoder_decoder'):
+#                ops += [testing_model.pool5]
+#            elif(model_name == 'small_encoder_decoder'):
+#                ops += [testing_model.pool3]
+        
+        # We just want to initialize the metrics.
         local_init = [tf.local_variables_initializer(), it_global.initializer]
-        
-    # Init the graph with the last checkpoint.
-    config = tf.ConfigProto()
-    #config.inter_op_parallelism_threads = config['num_threads'] 
-    sess = tf.Session(graph=G, config=config)
+        saver = tf.train.Saver()
+
+    # Init and run testing session
+    print('Initializing testing graph.')
+    sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True))
     tf.train.start_queue_runners(sess=sess)
-    start = time.time()
-    print('Checkpoint directory : {}'.format(checkpoint_dir))
     with sess.as_default():
         if(restore_checkpoint(sess, saver, checkpoint_dir)):
-            # Do not forget to reset metrics before using it !
+            # Initializes all metrics.
             sess.run(local_init)
-            sess.run(testing_model.reset_metrics())
-            # Load the first batch of data in memory
-            old_snap = tracemalloc.take_snapshot()
-            features, labels, metadata = test_data_gen.gen_batch_dataset(save_extracted_data = False, 
-                                                                         retrieve_data =  False,
-                                                                         take_random_files = False,
-                                                                         get_metadata=True)
+            sess.run(testing_model.reset_metrics())  
+            
+            # Starts the test on all files
             batch_it = 0
-            while(features is not None and len(features) > 0):
-                # Create the TF input pipeline and preprocess the data
-                new_snap = tracemalloc.take_snapshot()
-                print(new_snap.compare_to(old_snap, 'lineno'))
-                old_snap = new_snap
-                test_data_gen.create_tf_dataset_and_preprocessing(features, labels, metadata)
-                next_batch = test_data_gen.get_next_batch()
-                # Testing loop 
+            end_of_batch = False
+            while(not end_of_batch):
+                # Generates the next batch of data and loads it in memory
+                end_of_batch = test_data_gen.gen_batch_dataset(save_extracted_data=False, 
+                                                               retrieve_data=False,
+                                                               take_random_files = False,
+                                                               get_metadata=True)
+                    
+                # Initializes the iterator on the current batch 
+                sess.run(test_data_gen.data_iterator.initializer)
+                if(model_name == 'LSTM'):
+                    sess.run(test_data_gen.seq_length_iterator.initializer)
+                
+                # Begins to load the data into the input TF pipeline
+                step = 0
                 end_of_data = False
                 while(not end_of_data):
                     try:
-                        data_test = sess.run(next_batch)
-                        if(model_name == 'LSTM'):
-                            inputs = {input_data : data_test[0][0],
-                                      input_labels: data_test[0][1],
-                                      input_seq_length : data_test[1]}
-                        else:
-                            inputs = {input_data : data_test[0],
-                                      input_labels: data_test[1]}
-                        ops = [testing_model.accuracy_up, testing_model.precision_up,
-                               testing_model.recall_up, testing_model.confusion_matrix_up,
-                               testing_model.prob, update_it_global, it_global]
+                        # Updates the metrics according to the current batch
+                        results = sess.run(ops)
+                            
+                        # Computes the metrics
+                        metrics = sess.run(metrics_ops)
                         
-                        # we also want the output of our network
+                        # If necessary, save the features extracted in memory
                         if(save_features):
-                            ops += [testing_model.dense2]
-                        
-                        metrics = [testing_model.accuracy, testing_model.precision, 
-                                   testing_model.recall, testing_model.accuracy_per_class,
-                                   testing_model.confusion_matrix]
-                        # Computes the output, updates the metrics and global iterator
-                        res = sess.run(ops, feed_dict=inputs)
-                        # add the features to a queue before its real saving on disk
-                        if(save_features):
-                            test_data_gen.add_output_features(res[-1], data_test[1], data_test[2])
-                        # computes the metrics
-                        metrics_ = sess.run(metrics)
-                        #print('Global iteration {}'.format(res[6]))
-                        #print('Proba : {}'.format(res[4]))
-                        # updates the data in batch
-                    except tf.errors.OutOfRangeError:
+                            features = results[-1]
+                            test_data_gen.add_output_features(features)
+
+                        step += 1
+                    except tf.errors.OutOfRangeError:                            
                         end_of_data = True
                 
-                # Dump the features in the queue (cannot be done before because
-                # we do not control which pictures are given to the network)
+                # Gets the global iteration counter (for plots)
+                global_counter = sess.run(it_global)
+                
+                # If necessary, dump the features extracted on disk
                 if(save_features):
                     test_data_gen.dump_output_features()
-                # plots in console the metrics we want and hyperparameters
+                
+                # Plot in the console the current results
                 print('-----\nBATCH {} -----\n'.format(batch_it))
-                print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}\nConfusion Matrix : {}\n-----'.format(metrics_[0], 
-                  metrics_[1], metrics_[2], metrics_[3], metrics_[4]))
-                if(test_on_training):
-                    np.save(checkpoint_dir+'/training_confusion_matrix', metrics_[4])
-                else:
-                    np.save(checkpoint_dir+'/testing_confusion_matrix', metrics_[4])
-                # Updates the data and the batch counter
-                features.clear()
-                labels.clear()
-                metadata.clear()
-                features, labels, metadata = test_data_gen.gen_batch_dataset(save_extracted_data = False, 
-                                                                   retrieve_data = False,
-                                                                   take_random_files = False, 
-                                                                   get_metadata=True)
-                batch_it += 1
-        else:
-            print('Impossible to test the model.')
-    end = time.time()
-    print("Time usage: " + str(timedelta(seconds=int(round(end-start)))))
-    return testing_model
-
+                print('Current counter: {}\n'.format(global_counter))
+                if(model_name in {'LSTM', 'VGG_16'}):
+                    print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}\nConfusion Matrix : {}\n'.
+                      format(metrics[0], metrics[1], metrics[2], metrics[3], metrics[4]))
+                elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
+                    print('Loss : {}'.format(results[0]))
+                
+                # Finally, saves the confusion matrix, if needed.
+                if(model_name in {'LSTM', 'VGG_16'}):
+                    if(test_on_training):
+                        np.save(checkpoint_dir+'/training_confusion_matrix', metrics[4])
+                    else:
+                        np.save(checkpoint_dir+'/testing_confusion_matrix', metrics[4])
+                
+                
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
