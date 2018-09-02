@@ -128,9 +128,6 @@ def train_model(data):
             if(epoch % 2 == 1):
                 learning_rate = learning_rate/2
             
-            # Re-init the files in the data loader queue after each epoch
-            train_data_gen.init_paths_to_file()
-            
             batch_it = 0
             end_of_batch = False
             while(not end_of_batch):
@@ -175,16 +172,19 @@ def train_model(data):
                 
                 # Saves the weights 
                 saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), global_counter) 
+                print('Weights saved at iteration {}'.format(global_counter))
                 batch_it += 1
+            
+            # Re-init the files in the data loader queue after each epoch
+            train_data_gen.init_paths_to_file()
 
     end = time.time()
     print("Time usage: " + str(timedelta(seconds=int(round(end-start)))))
     return training_model
 
 # Test the model created during the training phase. 
-# If 'save_features' == True, save the features extracted
-# by the CNN as a list of Tensor (np array) of dimension:
-# nb_time_step x n_features where n_features = output space dim
+# If 'save_features' == True, saves the features extracted
+# the neural network (CNN, LSTM or autoencoder)
             
 def test_model(data, test_on_training = False, save_features = False):
     
