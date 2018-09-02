@@ -17,7 +17,6 @@ import h5py as h5
     
 class Data_Gen:
     
-    graph = None
     main_path = None
     paths_to_file = None # array of paths where we can find the data
     output_features_dir = None 
@@ -32,34 +31,39 @@ class Data_Gen:
     data_dims = None 
     segs = None
     database_name = None
+    model_name = None
     time_step = None
-    tf_device = None
     nb_classes = None
     subsampling = None
     resize_method = None
     dataset = None
     data_iterator = None
     seq_length = None
+    features = None
+    labels = None
+    metadata = None
     seq_length_iterator = None
+    iterators = None
     training_mode = None
     
-    def __init__(self, data_name, config, graph = None, tf_device = '/cpu:0',
-                 training=True, max_pic_size=None):
+    def __init__(self, data_name, config, training=True, max_pic_size=None):
         assert data_name in {'SF', 'SF_LSTM', 'MNIST', 'CIFAR-10', 'IMG_NET'}
  
         self.paths_to_file = []
         self.size_of_files = []
+        self.features = []
+        self.labels = []
+        self.metadata = []
         self.memory_size =  config['batch_memsize']
         self.data_dims = config['data_dims']
         self.database_name = data_name
         self.training_mode = training
+        self.model_name = config['model']
         self.nb_classes = config['nb_classes']
         self.batch_size = config['batch_size']
         self.num_threads = config['num_threads']
         self.prefetch_buffer_size = config['prefetch_buffer_size']
         self.max_pic_size = max_pic_size
-        self.tf_device = tf_device
-        self.graph = graph
         self.subsampling = 1
         
         if(data_name == 'SF'):
@@ -422,12 +426,18 @@ class Data_Gen:
                     print(traceback.format_exc())
             else:
                 print('File {} does not exist. Ignored'.format(file_path))
+        # Clears properly the arrays
+        self.features.clear()
+        self.labels.clear()
+        self.metadata.clear()
         
+        # Stores the data in memory 
+        self.features = features
+        self.labels = labels
         if(vid_infos):
-            return (features, labels, metadata)
-        else:
-            return (features, labels)
-    
+            self.metadata= metadata
+        
+        return (len(self.features) == 0)
     
     def gen_batch_dataset(self, 
                    save_extracted_data = False, 
@@ -462,14 +472,8 @@ class Data_Gen:
         for f in files_in_batch:
             print('\t - {} => {}MB'.format(f, math.ceil(os.path.getsize(f)/(1024.0*1024))))
         # Load the data in memory
-        if(get_metadata):
-            (features, labels, meta) = self._extract_data(files_in_batch, save_extracted_data, retrieve_data, True)
-            print('Data set loaded.')
-            return (features, labels, meta)
-        
-        (features, labels) = self._extract_data(files_in_batch, save_extracted_data, retrieve_data)
+        self._extract_data(files_in_batch, save_extracted_data, retrieve_data, vid_infos = get_metadata)
         print('Data set loaded.')
-        return (features, labels)
     
     
     # We assume that each metadata are formatted as : '{name_file}|{name_vid}|{active region size}|{frame_nb}'
@@ -515,24 +519,18 @@ class Data_Gen:
         self.output_labels.clear()
         self._output_features_part_counter += 1
 
+     # Used as input for the TensorFlow pipeline
+    def generator(self, use_metadata = False):
+        if(not use_metadata):
+            for k in range(len(self.features)):
+                yield (self.features[k], self.labels[k])
+        else:
+            for k in range(len(self.features)):
+                yield (self.features[k], self.labels[k], self.metadata[k])
         
     #############################################################
     #                   TENSORFLOW GRAPH                        #
     #############################################################
-    
-     # Used as input for the TensorFlow pipeline
-    @staticmethod
-    def generator(features, labels, meta=None):
-        if(meta is None):
-            for k in range(len(features)):
-                yield (features[k], labels[k])
-        elif(meta is not None and len(meta) == len(features)):
-            for k in range(len(features)):
-                yield (features[k], labels[k], meta[k])
-        else:
-            print('Metadata have length {} but features have length {}.'.format(len(meta), len(features)))
-            raise
-    
     # We assume that 'tensor' is a picture with shapes
     # (h, w, c) and the key associated should be unique 
     # according to the size.
@@ -573,39 +571,31 @@ class Data_Gen:
             raise
     
     
-    def create_tf_dataset_and_preprocessing(self, features, labels, metadata=None):
-        print('Constructing the new TensorFlow input pipeline on device {}...'.format(self.tf_device))
-        with self.graph.as_default(), tf.device(self.tf_device):
-            
-            if(metadata is None):
-                output_types = (tf.float32, tf.int32)
-                output_shapes = (tf.TensorShape([None for k in range(len(self.data_dims)-1)] + [self.data_dims[-1]]), tf.TensorShape([]))
-            else:
-                output_types = (tf.float32, tf.int32, tf.string)
-                output_shapes = (tf.TensorShape([None for k in range(len(self.data_dims)-1)] + [self.data_dims[-1]]), tf.TensorShape([]), tf.TensorShape([]))
-
-            self.dataset = tf.data.Dataset.from_generator(lambda: self.generator(features, labels, metadata),
+    def create_tf_dataset_and_preprocessing(self, use_metadata = False):
+        if(not use_metadata):
+            output_types = (tf.float32, tf.int32)
+            output_shapes = (tf.TensorShape([None for k in range(len(self.data_dims)-1)] + [self.data_dims[-1]]), tf.TensorShape([]))
+        else:
+            output_types = (tf.float32, tf.int32, tf.string)
+            output_shapes = (tf.TensorShape([None for k in range(len(self.data_dims)-1)] + [self.data_dims[-1]]), tf.TensorShape([]), tf.TensorShape([]))
+        
+        self.dataset = tf.data.Dataset.from_generator(lambda: self.generator(use_metadata),
                                                       output_types = output_types,
                                                       output_shapes = output_shapes)
-            if(self.database_name in {'SF', 'MNIST', 'CIFAR-10', 'IMG_NET'}):
-                print('Data preprocessing...')
-                self.data_preprocessing()
-                print('Grouping pictures by size...')
-                self.dataset = self.dataset.apply(tf.contrib.data.group_by_window(lambda pic, label, *kw: self._get_key_from_tensor(pic),
-                                                                                  lambda key, tensors : tensors.batch(self.batch_size),
-                                                                                  window_size=self.batch_size))
-            elif(self.database_name == 'SF_LSTM'):
-                print('Getting sequence length from input features....')
-                self.seq_length = self.dataset.apply(tf.contrib.data.map_and_batch(lambda seq, label, *kw: tf.shape(seq)[0], 
-                                                                                   self.batch_size, self.num_threads))
-                self.seq_length_iterator = self.seq_length.make_one_shot_iterator()
-                print('Zero-padding each sequence according to the max seq length in each batch...')
-                self.dataset = self.dataset.padded_batch(self.batch_size, padded_shapes=output_shapes)
-            
-            self.dataset = self.dataset.prefetch(buffer_size = self.prefetch_buffer_size)
-            self.data_iterator = self.dataset.make_one_shot_iterator()
-            print('New TF Dataset created.')
-    
+        if(self.database_name in {'SF', 'MNIST', 'CIFAR-10', 'IMG_NET'}):
+            self.data_preprocessing()
+            self.dataset = self.dataset.apply(tf.contrib.data.group_by_window(lambda pic, label, *kw: self._get_key_from_tensor(pic),
+                                                                              lambda key, tensors : tensors.batch(self.batch_size),
+                                                                              window_size=self.batch_size))
+        elif(self.model_name == 'LSTM'):
+            self.seq_length = self.dataset.apply(tf.contrib.data.map_and_batch(lambda seq, label, *kw: tf.shape(seq)[0], 
+                                                                               self.batch_size, self.num_threads))
+            self.seq_length_iterator = self.seq_length.make_initializable_iterator()
+            self.dataset = self.dataset.padded_batch(self.batch_size, padded_shapes=output_shapes)
+        
+        self.dataset = self.dataset.prefetch(buffer_size = self.prefetch_buffer_size)
+        self.data_iterator = self.dataset.make_initializable_iterator()
+        
     def get_next_batch(self):
         if(self.database_name == 'SF_LSTM'):
             return (self.data_iterator.get_next(), self.seq_length_iterator.get_next())
