@@ -107,6 +107,7 @@ def train_model(data):
             # re-init the learning rate at the beginning of each epoch
             learning_rate = config['learning_rate']
             # training loop 
+            old_snap = tracemalloc.take_snapshot()
             features, labels = train_data_gen.gen_batch_dataset(save_extracted_data=False, 
                                                                              retrieve_data=False,
                                                                              take_random_files = False,
@@ -114,6 +115,9 @@ def train_model(data):
             batch_it = 0
             while(features is not None and len(features) > 0):
                 # Create the TF input pipeline and preprocess the data
+                new_snap = tracemalloc.take_snapshot()
+                print(new_snap.compare_to(old_snap, 'lineno'))
+                old_snap = new_snap
                 train_data_gen.create_tf_dataset_and_preprocessing(features, labels)
                 next_batch = train_data_gen.get_next_batch()
                 # Computes every ops in each step   
