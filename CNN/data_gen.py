@@ -2,8 +2,7 @@
 '''
 This class aims to create a list of files where we can find the data and to manage
 the computer memory. The data memory size (in MB) is given and should not be exceeded.
-It also builds the input pipeline for the whole TensorFlow computation and thus 
-a graph is needed.
+It also builds the input pipeline for the whole TensorFlow computation.
 '''
 
 import os, re, pickle, traceback, math, drms, sys
@@ -475,14 +474,13 @@ class Data_Gen:
         self._extract_data(files_in_batch, save_extracted_data, retrieve_data, vid_infos = get_metadata)
         print('Data set loaded.')
     
-    
-    # We assume that each metadata are formatted as : '{name_file}|{name_vid}|{active region size}|{frame_nb}'
-    # The active region size is added manually at the beginning of every features.
-    def add_output_features(self, features, labels, metadata):
-        assert len(features) == len(labels) == len(metadata)
+    # Adds the features extracted by the Neural Network to the 'output_features' list.
+    # The active region size is added manually at the beginning of every feature.
+    def add_output_features(self, features):
+        assert len(features) == len(self.labels) == len(self.metadata)
         
-        for k in range(len(metadata)):
-            meta = metadata[k].decode()
+        for k in range(len(self.metadata)):
+            meta = self.metadata[k].decode()
             if(re.match('.+\|.+\|.+\|.+', meta)):
                 meta_list = re.split(r'\|', meta)
                 if(len(meta_list) == 4):
@@ -496,7 +494,7 @@ class Data_Gen:
                             print('Warning: frame {} already exists. Ignored'.format(frame_nb))
                     else:
                         self.output_features[feature_key] = {frame_nb: np.concatenate((features[k], [size_acr]))}
-                        self.output_labels[feature_key] = labels[k]
+                        self.output_labels[feature_key] = self.labels[k]
                 else:
                     print('Impossible to parse the metadata {}.Feature ignored'.format(meta))
             else:
