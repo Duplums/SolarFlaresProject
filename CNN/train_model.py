@@ -43,43 +43,37 @@ def train_model(data):
     model_name = config['model']
     # Training graph
     G = tf.Graph()
-    train_data_gen = data_gen.Data_Gen(data, config, G, max_pic_size=[3000,3000])
     
     with G.as_default():
-        
+        train_data_gen = data_gen.Data_Gen(data, config, max_pic_size=[3000,3000])
+        train_data_gen.create_tf_dataset_and_preprocessing(use_metadata = False)
         dyn_learning_rate = tf.placeholder(dtype=tf.float32,
                                            shape=[],
                                            name='learning_rate')
-        
-        input_data = tf.placeholder(dtype=tf.float32,
-                                    shape=[None]+config['data_dims'],
-                                    name='data')
-        if(model_name == 'LSTM' or model_name == 'VGG_16'):
-            input_labels = tf.placeholder(dtype=tf.int32,
-                                          shape=[None],
-                                          name='labels')
+        # input_data[0] == features (and input_data[1] == labels, if any)
         if(model_name == 'LSTM'):
-            input_seq_length = tf.placeholder(dtype=tf.int32,
-                                              shape=[None],
-                                              name='seq_length')
+            input_data, input_seq_length = train_data_gen.get_next_batch()
+        else:
+            input_data = train_data_gen.get_next_batch()        
         
         it_global = tf.Variable(tf.constant(0, shape=[], dtype=tf.int32), trainable=False)
-        update_it_global = tf.assign_add(it_global, tf.shape(input_data)[0]) 
+        update_it_global = tf.assign_add(it_global, tf.shape(input_data[0])[0]) 
         if(model_name == 'VGG_16'):
-            training_model = model.Model('VGG_16', nb_classes, batch_norm=config['batch_norm'], dropout_prob=config['dropout_prob'], loss_weights=loss_weights)
-            training_model.build_vgg16_like(input_data)
-            training_model.construct_results(input_labels)
+            training_model = model.Model('VGG_16', nb_classes, batch_norm=config['batch_norm'], 
+                                         dropout_prob=config['dropout_prob'], loss_weights=loss_weights)
+            training_model.build_vgg16_like(input_data[0])
+            training_model.construct_results(input_data[1])
         elif(model_name == 'LSTM'):
             training_model = model.Model('LSTM', nb_classes, loss_weights=loss_weights)
-            training_model.build_lstm(input_data, input_seq_length)
-            training_model.construct_results(input_labels)
+            training_model.build_lstm(input_data[0], input_seq_length)
+            training_model.construct_results(input_data[1])
         elif(model_name == 'VGG_16_encoder_decoder'):
             training_model = model.Model('VGG_16_encoder_decoder')
-            training_model.build_vgg16_encoder_decoder(input_data)
+            training_model.build_vgg16_encoder_decoder(input_data[0])
             training_model.construct_results()
         elif(model_name == 'small_encoder_decoder'):
             training_model = model.Model('small_encoder_decoder')
-            training_model.build_small_encoder_decoder(input_data)
+            training_model.build_small_encoder_decoder(input_data[0])
             training_model.construct_results()
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         
@@ -102,103 +96,84 @@ def train_model(data):
     start = time.time()
     with sess.as_default():
         restore_checkpoint(sess, saver, checkpoint_dir)
-        train_writer = tf.summary.FileWriter(tensorboard_dir, sess.graph)        
+        train_writer = tf.summary.FileWriter(tensorboard_dir, sess.graph)      
+        learning_rate = config['learning_rate']
         for epoch in range(num_epochs):
-            # re-init the learning rate at the beginning of each epoch
-            learning_rate = config['learning_rate']
-            # training loop 
-            old_snap = tracemalloc.take_snapshot()
-            features, labels = train_data_gen.gen_batch_dataset(save_extracted_data=False, 
-                                                                             retrieve_data=False,
-                                                                             take_random_files = False,
-                                                                             get_metadata=False)
+            # Decreases the learning rate every 2 epochs
+            if(epoch % 2 == 1):
+                learning_rate = learning_rate/2
+            
+            # Re-init the files in the data loader queue after each epoch
+            train_data_gen.init_paths_to_file()
+            
             batch_it = 0
-            while(features is not None and len(features) > 0):
-                # Create the TF input pipeline and preprocess the data
-                new_snap = tracemalloc.take_snapshot()
-                print(new_snap.compare_to(old_snap, 'lineno'))
-                old_snap = new_snap
-                train_data_gen.create_tf_dataset_and_preprocessing(features, labels)
-                next_batch = train_data_gen.get_next_batch()
-                # Computes every ops in each step   
+            end_of_batch = False
+            while(not end_of_batch):
+                # Generates the next batch of data and loads it in memory
+                end_of_batch = train_data_gen.gen_batch_dataset(save_extracted_data=False, 
+                                                 retrieve_data=False,
+                                                 take_random_files = False,
+                                                 get_metadata=False)
+                
+                # Initializes the iterator on the current batch 
+                sess.run(train_data_gen.data_iterator.initializer)
+                if(model_name == 'LSTM'):
+                    sess.run(train_data_gen.seq_length_iterator.initializer)
+                    
+                
+                # Adds the gradient and up_metrics operators
                 if(model_name in {'LSTM', 'VGG_16'}):
-                    ops = [merged, grad_step, training_model.loss, training_model.prob, training_model.accuracy_up,
-                           training_model.precision_up, training_model.recall_up, training_model.confusion_matrix_up, 
-                           training_model.pred, update_it_global, it_global]
+                    ops = [merged, grad_step, training_model.loss, 
+                           training_model.prob, training_model.accuracy_up,
+                           training_model.precision_up, training_model.recall_up, 
+                           training_model.confusion_matrix_up, 
+                           training_model.pred]
                 elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
-                    ops = [merged, grad_step, training_model.loss,
-                           update_it_global, it_global]
-                metrics = []
+                    ops = [merged, grad_step, training_model.loss]
+                     
+                # Adds the global iteration counter    
+                ops += [update_it_global]
+                
                 if(model_name in {'LSTM', 'VGG_16'}):
-                    metrics = [training_model.accuracy, 
+                    metrics_ops = [training_model.accuracy, 
                                training_model.precision, 
                                training_model.recall, 
                                training_model.confusion_matrix,
                                training_model.accuracy_per_class]
+                else:
+                    metrics_ops = []
+                # Begins to load the data into the input TF pipeline
                 step = 0
                 end_of_data = False
-                while not end_of_data:
+                while(not end_of_data):
                     try:
-                        data_train = sess.run(next_batch)
-                        if(model_name == 'LSTM'):
-                            inputs = {dyn_learning_rate : learning_rate,
-                                      input_data : data_train[0][0],
-                                      input_labels: data_train[0][1],
-                                      input_seq_length : data_train[1]}
-                        elif(model_name == 'VGG_16'):
-                            inputs = {dyn_learning_rate : learning_rate,
-                                      input_data : data_train[0],
-                                      input_labels: data_train[1]}
-                        elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
-                            inputs = {dyn_learning_rate : learning_rate,
-                                      input_data : data_train[0]}
-                        #run_meta = tf.RunMetadata()
-                        # runs the optimization and updates the metrics
-                        results = sess.run(ops, feed_dict=inputs)
-                        #                   options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
-                        #                   run_metadata=run_meta)
-                        #profiler.add_step(step, run_meta)
-                        #option_builder = tf.profiler.ProfileOptionBuilder
+                        # Runs the optimization and updates the metrics
+                        results = sess.run(ops, feed_dict={dyn_learning_rate : learning_rate})
                         
-                        #opts = (option_builder(option_builder.time_and_memory()).
-                        #    with_step(-1). # with -1, should compute the average of all registered steps.
-                        #    with_file_output('test.txt').
-                        #    select(['micros','bytes','occurrence']).order_by('bytes').
-                        #    build())
-                        # Profiling infos about ops are saved in 'test-%s.txt' % FLAGS.out
-                        #profiler.profile_operations(options=opts)
-                        # computes the metrics
-                        metrics_ = sess.run(metrics)
-                        # updates the learning rate and the old_loss
-                        #if(results[-1] % 1000 == 0 and results[-1] > 0):
-                        #    learning_rate /= 2
-                        # plot the variables in TensorBoard
+                        # Computes the metrics
+                        metrics = sess.run(metrics_ops)
+                        
+                        # Plots the variables in TensorBoard
                         train_writer.add_summary(results[0], global_step=results[-1])
-                        # plot in console the metrics we want and hyperparameters
+                        
+                        # Plots in console the metrics we want and hyperparameters
                         if(model_name in {'LSTM', 'VGG_16'}):
                             print('Epoch {}, Batch {}, step {}, accuracy : {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
-                                  metrics_[0], results[2], learning_rate))
+                                  metrics[0], results[2], learning_rate))
                         elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
                             print('Epoch {}, Batch {}, step {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
                                   results[2], learning_rate))
-                        # save the weigths
-                        if((step*config['batch_size']) % 500  == 0 and step > 0):
-                            saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), it_global)
-                            print('Checkpoint saved')
+                      
                         step += 1
                     except tf.errors.OutOfRangeError:                            
                         end_of_data = True
-                # Load the next batch of data in memory
-                features.clear()
-                labels.clear()
-                features, labels = train_data_gen.gen_batch_dataset(save_extracted_data=False, 
-                                                                    retrieve_data=False,
-                                                                    take_random_files=True,
-                                                                    get_metadata=False)
+                # Gets the global iteration counter
+                global_counter = sess.run(it_global)
+                
+                # Saves the weights 
+                saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), global_counter) 
                 batch_it += 1
-                saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), it_global) 
-            # Re-init the files in the data loader queue after each epoch
-            train_data_gen.init_paths_to_file()
+
     end = time.time()
     print("Time usage: " + str(timedelta(seconds=int(round(end-start)))))
     return training_model
