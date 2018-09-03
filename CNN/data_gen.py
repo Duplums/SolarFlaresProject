@@ -444,7 +444,6 @@ class Data_Gen:
             self.metadata= metadata
         
         print('Memory used: {}MB'.format(memory_used/(1024*1024)))
-        
         return (len(self.features) == 0)
     
     def gen_batch_dataset(self, 
@@ -481,9 +480,9 @@ class Data_Gen:
             print('\t - {} => {}MB'.format(os.path.basename(f), math.ceil(os.path.getsize(f)/(1024.0*1024))))
         
         # Loads the data in memory
-        self._extract_data(files_in_batch, save_extracted_data, retrieve_data, vid_infos = get_metadata)
+        end_of_data = self._extract_data(files_in_batch, save_extracted_data, retrieve_data, vid_infos = get_metadata)
         print('{} features extracted.\n'.format(len(self.features)))
-
+        return(end_of_data)
     
     # Adds the features extracted by the Neural Network to the 'output_features' list.
     # The active region size is added manually at the beginning of every feature.

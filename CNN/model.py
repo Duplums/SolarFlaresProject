@@ -298,6 +298,7 @@ class Model:
         assert type(data) is tf.Tensor and len(data.shape) == 3
         assert type(seq_length) is tf.Tensor and len(seq_length.shape) == 1
         with tf.variable_scope(self.name):
+            self.input_layer = data
             lstm_cell = tf.contrib.rnn.LSTMCell(num_units=512, use_peepholes=True, name='LSTM_Cell')
             rnn_output, rnn_last_state = tf.nn.dynamic_rnn(lstm_cell, data, seq_length, dtype=tf.float32)
             # rnn_output has size nb_seqs x max_time x output_cell_size [=512]
@@ -386,7 +387,7 @@ class Model:
         return acc    
     
     def construct_results(self, labels = None):
-        with tf.variable_scope(self.name, reuse=True):
+        with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
             # Quick overview of the input batch
             tf.summary.scalar('N_input', tf.shape(self.input_layer)[0])
             tf.summary.scalar('input_size_per_image', tf.reduce_prod(tf.shape(self.input_layer)[1:]))
