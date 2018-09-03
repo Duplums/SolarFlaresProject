@@ -386,7 +386,7 @@ class Model:
         return acc    
     
     def construct_results(self, labels = None):
-        with tf.variable_scope(self.name, reuse=True):
+        with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE):
             # Quick overview of the input batch
             tf.summary.scalar('N_input', tf.shape(self.input_layer)[0])
             tf.summary.scalar('input_size_per_image', tf.reduce_prod(tf.shape(self.input_layer)[1:]))

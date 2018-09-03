@@ -82,7 +82,7 @@ def train_model(data):
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         
         with tf.control_dependencies(update_ops):
-            optimizer = tf.train.AdamOptimizer(learning_rate=dyn_learning_rate)
+            optimizer = tf.train.GradientDescentOptimizer(learning_rate=dyn_learning_rate)
             grads = optimizer.compute_gradients(training_model.loss)
             grad_step = optimizer.apply_gradients(grads)
         
