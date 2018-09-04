@@ -476,11 +476,11 @@ class Data_Gen:
     
     # Adds the features extracted by the Neural Network to the 'output_features' list.
     # The active region size is added manually at the beginning of every feature.
-    def add_output_features(self, features):
-        assert len(features) == len(self.labels) == len(self.metadata)
+    def add_output_features(self, features, labels, metadata):
+        assert len(features) == len(labels) == len(metadata)
         
-        for k in range(len(self.metadata)):
-            meta = self.metadata[k].decode()
+        for k in range(len(metadata)):
+            meta = metadata[k].decode()
             if(re.match('.+\|.+\|.+\|.+', meta)):
                 meta_list = re.split(r'\|', meta)
                 if(len(meta_list) == 4):
@@ -494,7 +494,7 @@ class Data_Gen:
                             print('Warning: frame {} already exists. Ignored'.format(frame_nb))
                     else:
                         self.output_features[feature_key] = {frame_nb: np.concatenate((features[k], [size_acr]))}
-                        self.output_labels[feature_key] = self.labels[k]
+                        self.output_labels[feature_key] = labels[k]
                 else:
                     print('Impossible to parse the metadata {}.Feature ignored'.format(meta))
             else:
