@@ -124,12 +124,9 @@ def train_model(data):
         train_writer = tf.summary.FileWriter(tensorboard_dir, sess.graph)      
         learning_rate = config['learning_rate']
         for epoch in range(num_epochs):
-            # Decreases the learning rate every 2 epochs
-            if(epoch % 2 == 1):
+            # Decreases the learning rate every 5 epochs
+            if(epoch % 5  == 0 and epoch > 0):
                 learning_rate = learning_rate/2
-            
-            # Re-init the files in the data loader queue after each epoch
-            train_data_gen.init_paths_to_file()
             
             batch_it = 0
             end_of_batch = False
@@ -139,7 +136,6 @@ def train_model(data):
                                                  retrieve_data=False,
                                                  take_random_files = True,
                                                  get_metadata=False)
-                
                 # Initializes the iterator on the current batch 
                 sess.run(train_data_gen.data_iterator.initializer)
                 if(model_name == 'LSTM'):
@@ -175,16 +171,18 @@ def train_model(data):
                 
                 # Saves the weights 
                 saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), global_counter) 
+                print('Weights saved at iteration {}'.format(global_counter))
                 batch_it += 1
+            # Re-init the files in the data loader queue after each epoch
+            train_data_gen.init_paths_to_file()
 
     end = time.time()
     print("Time usage: " + str(timedelta(seconds=int(round(end-start)))))
     return training_model
 
 # Test the model created during the training phase. 
-# If 'save_features' == True, save the features extracted
-# by the CNN as a list of Tensor (np array) of dimension:
-# nb_time_step x n_features where n_features = output space dim
+# If 'save_features' == True, saves the features extracted
+# the neural network (CNN, LSTM or autoencoder)
             
 def test_model(data, test_on_training = False, save_features = False):
     
@@ -251,7 +249,7 @@ def test_model(data, test_on_training = False, save_features = False):
         # Selects the features that need to be saved
         if(save_features):
             if(model_name == 'VGG_16'):
-                ops += [input_data, testing_model.dense2]
+                ops += [input_data, testing_model.spp]
             elif(model_name == 'LSTM'):
                 ops += [input_data, testing_model.output]
                 
@@ -335,7 +333,8 @@ def test_model(data, test_on_training = False, save_features = False):
                     else:
                         np.save(checkpoint_dir+'/testing_confusion_matrix', metrics[4])
                 
-                
+        else:
+            print('Impossible to restore the model. Test aborted.')
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
