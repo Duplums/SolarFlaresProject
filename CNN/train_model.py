@@ -249,15 +249,15 @@ def test_model(data, test_on_training = False, save_features = False):
         # Selects the features that need to be saved
         if(save_features):
             if(model_name == 'VGG_16'):
-                ops += [testing_model.spp]
+                ops += [input_data, testing_model.spp]
             elif(model_name == 'LSTM'):
-                ops += [testing_model.output]
+                ops += [input_data, testing_model.output]
                 
 #   TODO LIST:                
 #            elif(model_name == 'VGG_16_encoder_decoder'):
-#                ops += [testing_model.pool5]
+#                ops += [input_data, testing_model.pool5]
 #            elif(model_name == 'small_encoder_decoder'):
-#                ops += [testing_model.pool3]
+#                ops += [input_data, testing_model.pool3]
         
         # We just want to initialize the metrics.
         local_init = [tf.local_variables_initializer(), it_global.initializer]
@@ -302,7 +302,9 @@ def test_model(data, test_on_training = False, save_features = False):
                         # If necessary, save the features extracted in memory
                         if(save_features):
                             features = results[-1]
-                            test_data_gen.add_output_features(features)
+                            labels = results[-2][1]
+                            metadata = results[-2][2]
+                            test_data_gen.add_output_features(features, labels, metadata)
 
                         step += 1
                     except tf.errors.OutOfRangeError:                            
