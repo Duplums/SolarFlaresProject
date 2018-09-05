@@ -258,7 +258,7 @@ class Data_Gen:
     # check 'NaN' in a frame that can have one or multiple channels. Returns
     # a clean frame. INPUT: np array with shape (h, w, c)
     @staticmethod
-    def _check_nan(frame):
+    def _check_nan(frame, verbose = False):
         shape = frame.shape
         new_frame = None
         if(len(shape) != 3):
@@ -267,7 +267,8 @@ class Data_Gen:
         for c in range(shape[2]):
             pic = frame[:,:,c]
             if(np.any(np.isnan(pic))):
-                print('Warning: NaN found in a frame. Trying to erase them...')
+                if(verbose):
+                    print('Warning: NaN found in a frame. Trying to erase them...')
                 where_is_nan = np.argwhere(np.isnan(pic))
                 nan_up_left_corner = (min(where_is_nan[:,0]), min(where_is_nan[:,1]))
                 nan_down_right_corner = (max(where_is_nan[:,0]), max(where_is_nan[:,1]))
@@ -285,7 +286,8 @@ class Data_Gen:
                 if(np.any(np.isnan(pic))):
                     print('Impossible to erase NaN.')
                 else:
-                    print('NaN erased. Reshape operation: {} --> {}'.format(pic_shape, pic_reshape))
+                    if(verbose):
+                        print('NaN erased. Reshape operation: {} --> {}'.format(pic_shape, pic_reshape))
             if(new_frame is None):
                 new_frame = np.zeros(pic.shape+(shape[2],), dtype=np.float32)
             try:
@@ -303,7 +305,7 @@ class Data_Gen:
         return new_frame
     
     @staticmethod
-    def _extract_frame(frame, frame_segs, frame_final_segs):
+    def _extract_frame(frame, frame_segs, frame_final_segs, verbose = False):
         nb_channels = len(frame_final_segs)
         shape_frame = frame.shape[0:2] + (nb_channels,)
         frame_tensor = np.zeros(shape_frame, dtype=np.float32)
@@ -314,7 +316,7 @@ class Data_Gen:
                 frame_tensor[:,:,channel_counter] = frame[:,:,k]
                 channel_counter += 1
         # Checks 'NaN' (be careful ,the size might change)
-        frame_tensor = Data_Gen._check_nan(frame_tensor)
+        frame_tensor = Data_Gen._check_nan(frame_tensor, verbose)
         return frame_tensor
         
     # Extract the data from the list of files according to the parameters set.
@@ -325,7 +327,7 @@ class Data_Gen:
     # !! CAREFUL: we assume that 'SIZE_ACR' is an attribute associated to EVERY frame
     # in the data base !! 
     def _extract_data(self, files_to_extract, saving = False, retrieve = False, 
-                      vid_infos = False):
+                      vid_infos = False, verbose = False):
         features = []
         labels = []
         metadata = []
@@ -334,7 +336,8 @@ class Data_Gen:
             if(os.path.isfile(file_path)):
                 try:
                     with h5.File(file_path, 'r') as db:
-                        print('Beginning to extract data from {}'.format(os.path.basename(file_path)))
+                        if(verbose):
+                            print('Beginning to extract data from {}'.format(os.path.basename(file_path)))
                         if(self.database_name == 'SF'):
                             curr_features = None
                             curr_labels = None
@@ -360,8 +363,9 @@ class Data_Gen:
                                         curr_meta = pickle.load(m)
                                     memory_used += os.path.getsize(curr_features)
                                     memory_used += os.path.getsize(curr_labels)
-                                    print('Data retrieved from {}, {}'.format(features_name, labels_name))
-                                    if(vid_infos):
+                                    if(verbose):
+                                        print('Data retrieved from {}, {}'.format(features_name, labels_name))
+                                    if(vid_infos and verbose):
                                         print('Meta data retrieved from {}'.format(metadata_name))
                                 except:
                                     print('Error while retrieving features.')
@@ -381,7 +385,7 @@ class Data_Gen:
                                         # subsample the video
                                         if(frame_counter % self.subsampling == 0):
                                             if('channels' in db[vid_key][frame_key].keys()):
-                                                frame_tensor = Data_Gen._extract_frame(db[vid_key][frame_key]['channels'], db[vid_key][frame_key].attrs['SEGS'], self.segs)                              
+                                                frame_tensor = Data_Gen._extract_frame(db[vid_key][frame_key]['channels'], db[vid_key][frame_key].attrs['SEGS'], self.segs, verbose)                              
                                                 curr_features += [frame_tensor]
                                                 curr_labels += [label]
                                                 curr_meta += [meta+str(db[vid_key][frame_key].attrs['SIZE_ACR'])+'|'+str(self._to_frame_num(frame_key))]
@@ -415,12 +419,13 @@ class Data_Gen:
                                 curr_features = []
                                 curr_labels = []
                                 for f_key in db['features'].keys():
-                                    curr_features += [np.array(db['features'][f_key])[:25,:]] # // TO BE CHANGED //
-                                    curr_labels += [np.array(db['labels'][f_key])]
-                                    memory_used += np.array(db['features'][f_key])[:25,:].nbytes
-                                    memory_used += np.array(db['labels'][f_key]).nbytes
-                                if(vid_infos):
-                                    metadata += list(db['features'].keys())
+                                    if(np.array(db['features'][f_key]).shape[0] > 20):
+                                        curr_features += [np.array(db['features'][f_key])[::-1,:][-25:,:]] # // TO BE CHANGED //
+                                        curr_labels += [np.array(db['labels'][f_key])]
+                                        memory_used += np.array(db['features'][f_key])[:25,:].nbytes
+                                        memory_used += np.array(db['labels'][f_key]).nbytes
+                                    if(vid_infos):
+                                        metadata += list(db['features'].keys())
                             
                             if(len(curr_features) == len(curr_labels)):
                                 features += curr_features
@@ -442,8 +447,8 @@ class Data_Gen:
         self.labels = labels
         if(vid_infos):
             self.metadata= metadata
-        
-        print('Memory used: {}MB'.format(memory_used/(1024*1024)))
+        if(memory_used > 0):
+            print('Memory used: {}MB'.format(memory_used/(1024*1024)))
         return (len(self.features) == 0)
     
     def gen_batch_dataset(self, 
@@ -451,7 +456,8 @@ class Data_Gen:
                    retrieve_data = False,
                    take_random_files = False,
                    get_metadata = False,
-                   rm_paths_to_file = True):
+                   rm_paths_to_file = True,
+                   verbose = False):
         
         batch_mem = 0
         if(take_random_files):
@@ -475,13 +481,15 @@ class Data_Gen:
             self.size_of_files = [s for k, s in enumerate(self.size_of_files) if k not in files_index[:counter]]
             self.paths_to_file = [s for k, s in enumerate(self.paths_to_file) if k not in files_index[:counter]]
         
-        print('Files to be loaded in memory : ')
-        for f in files_in_batch:
-            print('\t - {} => {}MB'.format(os.path.basename(f), math.ceil(os.path.getsize(f)/(1024.0*1024))))
+        if(verbose):
+            print('Files to be loaded in memory : ')
+            for f in files_in_batch:
+                print('\t - {} => {}MB'.format(os.path.basename(f), math.ceil(os.path.getsize(f)/(1024.0*1024))))
         
         # Loads the data in memory
-        end_of_data = self._extract_data(files_in_batch, save_extracted_data, retrieve_data, vid_infos = get_metadata)
-        print('{} features extracted.\n'.format(len(self.features)))
+        end_of_data = self._extract_data(files_in_batch, save_extracted_data, retrieve_data, vid_infos = get_metadata, verbose=verbose)
+        if(len(self.features) > 0):
+            print('{} elements extracted.\n'.format(len(self.features)))
         return(end_of_data)
     
     # Adds the features extracted by the Neural Network to the 'output_features' list.

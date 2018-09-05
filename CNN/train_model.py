@@ -2,6 +2,7 @@ import tensorflow as tf
 import time, os, traceback, argparse
 from datetime import timedelta
 import model, utils, data_gen
+import matplotlib.pyplot as plt
 import numpy as np
 import tracemalloc
 
@@ -49,7 +50,6 @@ def train_model(data):
         # Input TF pipeline
         train_data_gen = data_gen.Data_Gen(data, config, max_pic_size=[3000,3000])
         train_data_gen.create_tf_dataset_and_preprocessing(use_metadata = False)
-        
         
         dyn_learning_rate = tf.placeholder(dtype=tf.float32,
                                            shape=[],
@@ -111,21 +111,24 @@ def train_model(data):
         global_init = tf.global_variables_initializer() # Every weights
         local_init = tf.local_variables_initializer() # For metrics
         saver = tf.train.Saver()
+    
 
     # init and run training session
     print('Initializing training graph.')
     sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True))
     tf.train.start_queue_runners(sess=sess)
     sess.run(global_init)
-    sess.run(local_init)
     start = time.time()
     with sess.as_default():
         restore_checkpoint(sess, saver, checkpoint_dir)
+        sess.run(local_init) # re-init the metrics
+        if(model_name in {'LSTM', 'VGG_16'}):
+            sess.run(training_model.reset_metrics())
         train_writer = tf.summary.FileWriter(tensorboard_dir, sess.graph)      
         learning_rate = config['learning_rate']
         for epoch in range(num_epochs):
             # Decreases the learning rate every 5 epochs
-            if(epoch % 5  == 0 and epoch > 0):
+            if(epoch % 40  == 0 and epoch > 0):
                 learning_rate = learning_rate/2
             
             batch_it = 0
@@ -136,43 +139,52 @@ def train_model(data):
                                                  retrieve_data=False,
                                                  take_random_files = True,
                                                  get_metadata=False)
-                # Initializes the iterator on the current batch 
-                sess.run(train_data_gen.data_iterator.initializer)
-                if(model_name == 'LSTM'):
-                    sess.run(train_data_gen.seq_length_iterator.initializer)
+                if(not end_of_batch):
+                    # Initializes the iterator on the current batch 
+                    sess.run(train_data_gen.data_iterator.initializer)
+                    if(model_name == 'LSTM'):
+                        sess.run(train_data_gen.seq_length_iterator.initializer)
+                        
+                    # Begins to load the data into the input TF pipeline
+                    step = 0
+                    end_of_data = False
+                    while(not end_of_data):
+                        try:
+                            snapshot1 = tracemalloc.take_snapshot()
+                            # Runs the optimization and updates the metrics
+                            results = sess.run(ops, feed_dict={dyn_learning_rate : learning_rate})
+                            
+                            # Computes the metrics
+                            metrics = sess.run(metrics_ops)
+                            snapshot2 = tracemalloc.take_snapshot()
+                            top_stats = snapshot2.compare_to(snapshot1, 'lineno')
+
+                            print("[ Top 10 differences ]")
+                            for stat in top_stats[:10]:
+                                print(stat)
+                            
+                            # Plots the variables in TensorBoard
+                            train_writer.add_summary(results[0], global_step=results[-1])
+                            
+                            # Plots in console the metrics we want and hyperparameters
+                            if(model_name in {'LSTM', 'VGG_16'}):
+                                print('Epoch {}, Batch {}, step {}, accuracy : {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
+                                      metrics[0], results[2], learning_rate))
+                                print('Confusion matrix: {}\n'.format(metrics[3]))
+                            elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
+                                print('Epoch {}, Batch {}, step {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
+                                      results[2], learning_rate))
+                          
+                            step += 1
+                        except tf.errors.OutOfRangeError:                            
+                            end_of_data = True
+                    # Gets the global iteration counter
+                    global_counter = sess.run(it_global)
                     
-                # Begins to load the data into the input TF pipeline
-                step = 0
-                end_of_data = False
-                while(not end_of_data):
-                    try:
-                        # Runs the optimization and updates the metrics
-                        results = sess.run(ops, feed_dict={dyn_learning_rate : learning_rate})
-                        
-                        # Computes the metrics
-                        metrics = sess.run(metrics_ops)
-                        
-                        # Plots the variables in TensorBoard
-                        train_writer.add_summary(results[0], global_step=results[-1])
-                        
-                        # Plots in console the metrics we want and hyperparameters
-                        if(model_name in {'LSTM', 'VGG_16'}):
-                            print('Epoch {}, Batch {}, step {}, accuracy : {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
-                                  metrics[0], results[2], learning_rate))
-                        elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
-                            print('Epoch {}, Batch {}, step {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
-                                  results[2], learning_rate))
-                      
-                        step += 1
-                    except tf.errors.OutOfRangeError:                            
-                        end_of_data = True
-                # Gets the global iteration counter
-                global_counter = sess.run(it_global)
-                
-                # Saves the weights 
-                saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), global_counter) 
-                print('Weights saved at iteration {}'.format(global_counter))
-                batch_it += 1
+                    # Saves the weights 
+                    saver.save(sess, os.path.join(checkpoint_dir,'training_{}.ckpt'.format(model_name)), global_counter) 
+                    print('Weights saved at iteration {}.\n'.format(global_counter))
+                    batch_it += 1
             # Re-init the files in the data loader queue after each epoch
             train_data_gen.init_paths_to_file()
 
@@ -233,7 +245,11 @@ def test_model(data, test_on_training = False, save_features = False):
                    testing_model.confusion_matrix_up, 
                    testing_model.pred]
         elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
-            ops = [testing_model.loss]
+            if(model_name == 'VGG_16_encoder_decoder'):
+                ops = [testing_model.input_layer,
+                       testing_model.output]
+            else:
+                ops = [testing_model.loss]
         
         # Adds the global iteration counter    
         ops += [update_it_global]
@@ -271,7 +287,8 @@ def test_model(data, test_on_training = False, save_features = False):
         if(restore_checkpoint(sess, saver, checkpoint_dir)):
             # Initializes all metrics.
             sess.run(local_init)
-            sess.run(testing_model.reset_metrics())  
+            if(model_name in {'LSTM', 'VGG_16'}):
+                sess.run(testing_model.reset_metrics())  
             
             # Starts the test on all files
             batch_it = 0
@@ -322,7 +339,7 @@ def test_model(data, test_on_training = False, save_features = False):
                 print('Current counter: {}\n'.format(global_counter))
                 if(model_name in {'LSTM', 'VGG_16'}):
                     print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}\nConfusion Matrix : {}\n'.
-                      format(metrics[0], metrics[1], metrics[2], metrics[3], metrics[4]))
+                      format(metrics[0], metrics[1], metrics[2], metrics[4], metrics[3]))
                 elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
                     print('Loss : {}'.format(results[0]))
                 
