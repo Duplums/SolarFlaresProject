@@ -13,7 +13,7 @@ class Model:
     
     def __init__(self, name = 'neural_network',\
                  nb_classes = 2, training_mode = True,\
-                 batch_norm = True, dropout_prob = 0.2,\
+                 batch_norm = True, dropout_prob = 0.4,\
                  loss_weights = [1, 1]):
         self.name = name
         self.nb_classes = nb_classes
@@ -310,8 +310,9 @@ class Model:
             # in each sequence i (range), select the line seq_len[i]-1
             # size : nb_seqs x n_inputs
             self.output = tf.gather_nd(rnn_output, indices)
-            self.logits = self.fc_layer(self.output, 512, self.nb_classes, 'logits', activation=None, dropout=False)
+            self.logits = self.fc_layer(self.output, 512, self.nb_classes, 'logits')
             self.model_built = 'LSTM'
+            self.weights_summary(self.output, 'last_fc_layer')
             return self.output
         
     
