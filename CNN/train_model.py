@@ -329,9 +329,9 @@ def test_model(data, test_on_training = False, save_features = False):
                 # Finally, saves the confusion matrix, if needed.
                 if(model_name in {'LSTM', 'VGG_16'}):
                     if(test_on_training):
-                        np.save(checkpoint_dir+'/training_confusion_matrix', metrics[4])
+                        np.save(checkpoint_dir+'/training_confusion_matrix', metrics[3])
                     else:
-                        np.save(checkpoint_dir+'/testing_confusion_matrix', metrics[4])
+                        np.save(checkpoint_dir+'/testing_confusion_matrix', metrics[3])
                 
         else:
             print('Impossible to restore the model. Test aborted.')
