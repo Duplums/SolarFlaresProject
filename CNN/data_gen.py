@@ -12,7 +12,7 @@ import skimage.transform as sk
 import tensorflow as tf
 import numpy as np
 import h5py as h5
-    
+from memory_profiler import profile    
     
 class Data_Gen:
     
@@ -536,13 +536,14 @@ class Data_Gen:
         self._output_features_part_counter += 1
 
      # Used as input for the TensorFlow pipeline
-    def generator(self, use_metadata = False):
+    @staticmethod
+    def generator(features, labels, metadata, use_metadata = False):
         if(not use_metadata):
-            for k in range(len(self.features)):
-                yield (self.features[k], self.labels[k])
+            for k in range(len(features)):
+                yield (features[k], labels[k])
         else:
-            for k in range(len(self.features)):
-                yield (self.features[k], self.labels[k], self.metadata[k])
+            for k in range(len(features)):
+                yield (features[k], labels[k], metadata[k])
         
     #############################################################
     #                   TENSORFLOW GRAPH                        #
@@ -586,7 +587,7 @@ class Data_Gen:
             print('Error: unknown resizing method')
             raise
     
-    
+    @profile
     def create_tf_dataset_and_preprocessing(self, use_metadata = False):
         if(not use_metadata):
             output_types = (tf.float32, tf.int32)
@@ -595,7 +596,7 @@ class Data_Gen:
             output_types = (tf.float32, tf.int32, tf.string)
             output_shapes = (tf.TensorShape([None for k in range(len(self.data_dims)-1)] + [self.data_dims[-1]]), tf.TensorShape([]), tf.TensorShape([]))
         
-        self.dataset = tf.data.Dataset.from_generator(lambda: self.generator(use_metadata),
+        self.dataset = tf.data.Dataset.from_generator(lambda: Data_Gen.generator(self.features, self.labels, self.metadata, use_metadata),
                                                       output_types = output_types,
                                                       output_shapes = output_shapes)
         if(self.database_name in {'SF', 'MNIST', 'CIFAR-10', 'IMG_NET'}):

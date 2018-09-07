@@ -5,6 +5,9 @@ import model, utils, data_gen
 import matplotlib.pyplot as plt
 import numpy as np
 import tracemalloc
+import psutil
+import gc
+from memory_profiler import profile
 
 # config: dict containing every info for training mode
 # train_data_gen: load in RAM the data when needed
@@ -29,7 +32,7 @@ def restore_checkpoint(session, saver, save_dir):
         print(traceback.format_exc())
         return False
 
-
+@profile
 def train_model(data):
     
     config = utils.config[data]
@@ -45,7 +48,7 @@ def train_model(data):
    
     # Creation of the training graph
     G = tf.Graph()
-    with G.as_default():
+    with G.as_default(), tf.device('/cpu:0'):
         
         # Input TF pipeline
         train_data_gen = data_gen.Data_Gen(data, config, max_pic_size=[3000,3000])
@@ -115,7 +118,9 @@ def train_model(data):
 
     # init and run training session
     print('Initializing training graph.')
-    sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True))
+    sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True,
+                                                     intra_op_parallelism_threads=config['num_threads'],
+                                                     inter_op_parallelism_threads=config['num_threads']))
     tf.train.start_queue_runners(sess=sess)
     sess.run(global_init)
     start = time.time()
@@ -127,19 +132,26 @@ def train_model(data):
         train_writer = tf.summary.FileWriter(tensorboard_dir, sess.graph)      
         learning_rate = config['learning_rate']
         for epoch in range(num_epochs):
-            # Decreases the learning rate every 5 epochs
+            # Decreases the learning rate every x epochs
             if(epoch % 40  == 0 and epoch > 0):
                 learning_rate = learning_rate/2
             
             batch_it = 0
             end_of_batch = False
             while(not end_of_batch):
+                snapshot1 = tracemalloc.take_snapshot()
                 # Generates the next batch of data and loads it in memory
                 end_of_batch = train_data_gen.gen_batch_dataset(save_extracted_data=False, 
                                                  retrieve_data=False,
                                                  take_random_files = True,
                                                  get_metadata=False)
+                snapshot2 = tracemalloc.take_snapshot()
+                top_stats = snapshot2.compare_to(snapshot1, 'lineno')
+                print("\n[ Top 10 differences ]")
+                for stat in top_stats[:10]:
+                    print(stat)
                 if(not end_of_batch):
+                    
                     # Initializes the iterator on the current batch 
                     sess.run(train_data_gen.data_iterator.initializer)
                     if(model_name == 'LSTM'):
@@ -153,13 +165,15 @@ def train_model(data):
                             snapshot1 = tracemalloc.take_snapshot()
                             # Runs the optimization and updates the metrics
                             results = sess.run(ops, feed_dict={dyn_learning_rate : learning_rate})
-                            
+                            gc.collect()
                             # Computes the metrics
                             metrics = sess.run(metrics_ops)
                             snapshot2 = tracemalloc.take_snapshot()
                             top_stats = snapshot2.compare_to(snapshot1, 'lineno')
-
-                            print("[ Top 10 differences ]")
+                            print('\nMemory info:')
+                            print(psutil.virtual_memory())
+                            print(psutil.swap_memory())
+                            print("\n[ Top 10 differences ]")
                             for stat in top_stats[:10]:
                                 print(stat)
                             
@@ -168,11 +182,11 @@ def train_model(data):
                             
                             # Plots in console the metrics we want and hyperparameters
                             if(model_name in {'LSTM', 'VGG_16'}):
-                                print('Epoch {}, Batch {}, step {}, accuracy : {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
+                                print('\nEpoch {}, Batch {}, step {}, accuracy : {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
                                       metrics[0], results[2], learning_rate))
                                 print('Confusion matrix: {}\n'.format(metrics[3]))
                             elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
-                                print('Epoch {}, Batch {}, step {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
+                                print('\nEpoch {}, Batch {}, step {}, loss : {}, learning_rate : {}'.format(epoch, batch_it, step,
                                       results[2], learning_rate))
                           
                             step += 1
