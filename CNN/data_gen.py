@@ -7,17 +7,17 @@ It also builds the input pipeline for the whole TensorFlow computation.
 
 import os, re, pickle, traceback, math, drms, sys
 from collections import OrderedDict
-import matplotlib.pyplot as plt
 import skimage.transform as sk
 import tensorflow as tf
 import numpy as np
 import h5py as h5
-from memory_profiler import profile    
     
 class Data_Gen:
     
     main_path = None
     paths_to_file = None # array of paths where we can find the data
+    nb_total_files = None
+    num_files_analyzed = None
     output_features_dir = None 
     output_features = None
     output_labels = None    
@@ -47,8 +47,6 @@ class Data_Gen:
     def __init__(self, data_name, config, training=True, max_pic_size=None):
         assert data_name in {'SF', 'SF_LSTM', 'MNIST', 'CIFAR-10', 'IMG_NET'}
  
-        self.paths_to_file = []
-        self.size_of_files = []
         self.features = []
         self.labels = []
         self.metadata = []
@@ -110,6 +108,8 @@ class Data_Gen:
     def init_paths_to_file(self):
         self.paths_to_file = []
         self.size_of_files = []
+        self.nb_total_files = 0
+        self.num_files_analyzed = 0
         for path in self.main_path:
             if os.path.exists(path):
                 for file in os.listdir(path):   
@@ -119,6 +119,7 @@ class Data_Gen:
                         if(size <= self.memory_size):
                             self.paths_to_file += [path_to_file]
                             self.size_of_files += [size/float(self.subsampling)]
+                            self.nb_total_files += 1
                         else:
                             print('Warning: file {} [{}MB] will not fit in memory (> {}MB). Ignored'.format(file, size, self.memory_size))
                     else:
@@ -244,6 +245,42 @@ class Data_Gen:
         else:
             print('Number of classes > 2 case : not yet implemented')
             raise
+    
+    # Resizes every frame in a video according to the data_dims param (if None: 
+    # size of the first frame, dim H x W x C) (with the resizing method 'self.resize_method'). 
+    # Returs a numpy array of size n x H x W x C if n = nb of frames
+    def _resize_video(self, video):
+        n = len(video)
+        if(n == 0):
+            return np.array([])
+        if(len(video[0].shape) != 3):
+            raise RuntimeError('The first frame of a video has the following invalid dimension: {}'.format(video[0].shape))
+        if(len(self.data_dims) != 4):
+            raise RuntimeError('Wrong number of dimensions for the model {}: got {}'.format(self.model_name, self.data_dims))
+        if(None in self.data_dims[1:]):
+            H = video[0].shape[0]
+            W = video[0].shape[1]
+            C = video[0].shape[2]
+        else:
+            H, W, C = self.data_dims[1:]
+            
+        resized_vid = np.zeros((n, H, W, C), dtype=np.float32)
+        # Set the order of the interpolation
+        if(self.resize_method == 'NONE'):
+            o = 1
+        elif(self.resize_method == 'LIN_RESIZING'):
+            o = 1 
+        elif(self.resize_method == 'QUAD_RESIZING'):           
+            o = 2
+        else:
+            raise RuntimeError('Unknown resized method: {}'.format(self.resize_method))
+            
+        for k in range(n):
+            resized_vid[k, :, :, :] = sk.resize(video[k], (H, W, C), order = o, preserve_range=True)
+        
+        return resized_vid
+    
+    
     # Extract the frame numero from the frame key in each video of a SF.
     # We assume that each frame_key has the following format: 'frame{i}'
     # where {i} = the frame numero 
@@ -379,17 +416,27 @@ class Data_Gen:
                                 curr_meta= []
                                 for vid_key in db.keys():
                                     frame_counter = 0
+                                    video = [] # useful only for the LRCN model (one feature is a video)
                                     label = self._label(db[vid_key].attrs['event_class'])
                                     meta = os.path.basename(file_path) + '|'+vid_key+'|'
                                     for frame_key in db[vid_key].keys():
                                         # subsample the video
                                         if(frame_counter % self.subsampling == 0):
                                             if('channels' in db[vid_key][frame_key].keys()):
-                                                frame_tensor = Data_Gen._extract_frame(db[vid_key][frame_key]['channels'], db[vid_key][frame_key].attrs['SEGS'], self.segs, verbose)                              
-                                                curr_features += [frame_tensor]
-                                                curr_labels += [label]
-                                                curr_meta += [meta+str(db[vid_key][frame_key].attrs['SIZE_ACR'])+'|'+str(self._to_frame_num(frame_key))]
+                                                frame_tensor = Data_Gen._extract_frame(db[vid_key][frame_key]['channels'], db[vid_key][frame_key].attrs['SEGS'], self.segs, verbose)
+                                                if(self.model_name == 'LRCN'):
+                                                    video += [frame_tensor]
+                                                else:
+                                                    curr_features += [frame_tensor]
+                                                    curr_labels += [label]
+                                                    curr_meta += [meta+str(db[vid_key][frame_key].attrs['SIZE_ACR'])+'|'+str(self._to_frame_num(frame_key))]
                                                 memory_used += frame_tensor.nbytes
+
+                                    if(self.model_name == 'LRCN'):
+                                        curr_features += [self._resize_video(video)]
+                                        curr_labels += [label]
+                                        curr_meta += [meta]
+                                        
                                 print('Data extracted.')
                                 if(saving):
                                     try:
@@ -477,6 +524,7 @@ class Data_Gen:
                 counter += 1
             else:
                 break
+        self.num_files_analyzed += counter
         if(rm_paths_to_file):
             self.size_of_files = [s for k, s in enumerate(self.size_of_files) if k not in files_index[:counter]]
             self.paths_to_file = [s for k, s in enumerate(self.paths_to_file) if k not in files_index[:counter]]
@@ -491,6 +539,15 @@ class Data_Gen:
         if(len(self.features) > 0):
             print('{} elements extracted.\n'.format(len(self.features)))
         return(end_of_data)
+    
+    def get_num_files_analyzed(self):
+        return self.num_files_analyzed
+    
+    def get_num_total_files(self):
+        return self.nb_total_files
+    
+    def get_num_features(self):
+        return len(self.features)
     
     # Adds the features extracted by the Neural Network to the 'output_features' list.
     # The active region size is added manually at the beginning of every feature.
@@ -587,7 +644,6 @@ class Data_Gen:
             print('Error: unknown resizing method')
             raise
     
-    @profile
     def create_tf_dataset_and_preprocessing(self, use_metadata = False):
         if(not use_metadata):
             output_types = (tf.float32, tf.int32)
@@ -599,18 +655,27 @@ class Data_Gen:
         self.dataset = tf.data.Dataset.from_generator(lambda: Data_Gen.generator(self.features, self.labels, self.metadata, use_metadata),
                                                       output_types = output_types,
                                                       output_shapes = output_shapes)
-        if(self.database_name in {'SF', 'MNIST', 'CIFAR-10', 'IMG_NET'}):
+        if(self.model_name in {'VGG_16', 'VGG_16_encoder_decoder'}):
             self.data_preprocessing()
             self.dataset = self.dataset.apply(tf.contrib.data.group_by_window(lambda pic, label, *kw: self._get_key_from_tensor(pic),
                                                                               lambda key, tensors : tensors.batch(self.batch_size),
                                                                               window_size=self.batch_size))
+            self.dataset = self.dataset.prefetch(buffer_size = self.prefetch_buffer_size)
+            
         elif(self.model_name == 'LSTM'):
             self.seq_length = self.dataset.apply(tf.contrib.data.map_and_batch(lambda seq, label, *kw: tf.shape(seq)[0], 
                                                                                self.batch_size, self.num_threads))
             self.seq_length_iterator = self.seq_length.make_initializable_iterator()
             self.dataset = self.dataset.padded_batch(self.batch_size, padded_shapes=output_shapes)
+            self.dataset = self.dataset.prefetch(buffer_size = self.prefetch_buffer_size)
         
-        self.dataset = self.dataset.prefetch(buffer_size = self.prefetch_buffer_size)
+        elif(self.model_name == 'LRCN'):
+            self.dataset = self.dataset.map(lambda video, label, *kw: (tf.map_fn(lambda img : tf.image.per_image_standardization(img), video, parallel_iterations=self.num_threads),
+                                                                       label, *kw),
+                                            self.num_threads)
+            self.dataset = self.dataset.batch(1)
+            self.dataset = self.dataset.prefetch(buffer_size = 1)
+        
         self.data_iterator = self.dataset.make_initializable_iterator()
         
     def get_next_batch(self):

@@ -1,5 +1,5 @@
 import tensorflow as tf
-import numpy as np
+from tensorflow.keras.layers import TimeDistributed, Conv2D, MaxPooling2D, LSTM, Dense, Dropout, BatchNormalization
 
 class Model:
     
@@ -25,85 +25,124 @@ class Model:
     
     #                 GRAPH CONSTRUCTION                        #
     #############################################################
+    
+    # Uses Keras layers (for time ditribution)
+    def build_lrcn(self, data):
+         # data must have size 1 x nb_frames x height x width x nb_channels [just 1 video at a time since the size can change]
+         assert type(data) is tf.Tensor and len(data.shape) == 5
+         with tf.variable_scope(self.name):
+            (_, nb_frames, height, width, nb_channels) = data.get_shape().as_list()
+            
+         # VGG-16 encoder (stack)
+            ### conv3 - 64
+            self.input_layer = tf.cast(data, dtype=tf.float32)            
+            self.conv1_1 = Conv2D(filters=64, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu', input_shape=(height, width, nb_channels))(self.input_layer)
+            self.conv1_1 = BatchNormalization()(self.conv1_1)
+            self.conv1_2 = Conv2D(filters=64, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv1_1)
+            self.conv1_2 = BatchNormalization()(self.conv1_2)
+            self.pool1 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv1_2)
+            ### conv3 - 128
+            self.conv2_1 = Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool1)
+            self.conv2_1 = BatchNormalization()(self.conv2_1)
+            self.conv2_2 = Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv2_1)
+            self.conv2_2 = BatchNormalization()(self.conv2_2)
+            self.pool2 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv2_2)
+            ### conv3 - 256
+            self.conv3_1 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool2)
+            self.conv3_1 = BatchNormalization()(self.conv3_1)
+            self.conv3_2 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv3_1)
+            self.conv3_2 = BatchNormalization()(self.conv3_2)
+            self.conv3_3 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv3_2)
+            self.conv3_3 = BatchNormalization()(self.conv3_3)
+            self.pool3 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv3_3)
+            ### conv3 - 512
+            self.conv4_1 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool3)
+            self.conv4_1 = BatchNormalization()(self.conv4_1)
+            self.conv4_2 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv4_1)
+            self.conv4_2 = BatchNormalization()(self.conv4_2)
+            self.conv4_3 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv4_2)
+            self.conv4_3 = BatchNormalization()(self.conv4_3)
+            self.pool4 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv4_3)
+            ### conv3 - 512
+            self.conv5_1 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool4)
+            self.conv5_1 = BatchNormalization()(self.conv5_1)
+            self.conv5_2 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv5_1)
+            self.conv5_2 = BatchNormalization()(self.conv5_2)
+            self.conv5_3 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv5_2)
+            self.conv5_3 = BatchNormalization()(self.conv5_3)
+            self.pool5 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv5_3)
+          # SPP [4, 2, 1]
+            self.spp = self.spp_layer(self.pool5, [4, 2, 1], 'spp')
+          # LSTM 
+            self.lstm = LSTM(units=512, return_sequences=False, return_state=False, dropout=self.dropout_prob)(self.spp)
+            self.output = Dense(self.nb_classes)(self.lstm)
+            
+            self.model_built = 'LRCN'
+            return self.output
+            
+            
+            
     def build_vgg16_like(self, data):
         # data must have size nb_pictures x height x width x nb_channels
         assert type(data) is tf.Tensor and len(data.shape) == 4
         with tf.variable_scope(self.name):
             (nb_pics, height, width, nb_channels) = data.get_shape().as_list()
             
+          # VGG-16 encoder
+             ### conv3 - 64
             self.input_layer = tf.cast(data, dtype=tf.float32)            
-            # CONV3-64 [h, w, c] --> [h, w, 64]
-            self.conv1_1 = self.conv_layer(self.input_layer, [3, 3, nb_channels, 64], 'conv1_1')
-
-            # CONV3-64 [h, w, 64] --> [h, w, 64]
-            self.conv1_2 = self.conv_layer(self.conv1_1, [3, 3, 64, 64], 'conv1_2')
+            self.conv1_1 = Conv2D(filters=64, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu', input_shape=(height, width, nb_channels))(self.input_layer)
+            self.conv1_1 = BatchNormalization()(self.conv1_1)
+            self.conv1_2 = Conv2D(filters=64, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv1_1)
+            self.conv1_2 = BatchNormalization()(self.conv1_2)
+            self.pool1 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv1_2)
+            ### conv3 - 128
+            self.conv2_1 = Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool1)
+            self.conv2_1 = BatchNormalization()(self.conv2_1)
+            self.conv2_2 = Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv2_1)
+            self.conv2_2 = BatchNormalization()(self.conv2_2)
+            self.pool2 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv2_2)
+            ### conv3 - 256
+            self.conv3_1 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool2)
+            self.conv3_1 = BatchNormalization()(self.conv3_1)
+            self.conv3_2 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv3_1)
+            self.conv3_2 = BatchNormalization()(self.conv3_2)
+            self.conv3_3 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv3_2)
+            self.conv3_3 = BatchNormalization()(self.conv3_3)
+            self.pool3 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv3_3)
+            ### conv3 - 512
+            self.conv4_1 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool3)
+            self.conv4_1 = BatchNormalization()(self.conv4_1)
+            self.conv4_2 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv4_1)
+            self.conv4_2 = BatchNormalization()(self.conv4_2)
+            self.conv4_3 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv4_2)
+            self.conv4_3 = BatchNormalization()(self.conv4_3)
+            self.pool4 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv4_3)
+            ### conv3 - 512
+            self.conv5_1 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool4)
+            self.conv5_1 = BatchNormalization()(self.conv5_1)
+            self.conv5_2 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv5_1)
+            self.conv5_2 = BatchNormalization()(self.conv5_2)
+            self.conv5_3 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv5_2)
+            self.conv5_3 = BatchNormalization()(self.conv5_3)
+            self.pool5 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv5_3)
             
-            # MAX POOLING [h, w, 64] --> [h/2, w/2, 64]
-            self.pool1 = tf.layers.max_pooling2d(inputs=self.conv1_2, name='pool1', pool_size=2, strides=2, padding='same')
-            
-            ################################
-            # CONV3-128 [h/2, w/2, 64] --> [h/2, w/2, 128]
-            self.conv2_1 = self.conv_layer(self.pool1, [3, 3, 64, 128], 'conv2_1')
-
-            # CONV3-128 [h/2, w/2, 128] --> [h/2, w/2, 128]
-            self.conv2_2 = self.conv_layer(self.conv2_1, [3, 3, 128, 128], 'conv2_2')
-     
-            # MAX POOLING [h/2, w/2, 128] --> [h/4, w/4, 128]
-            self.pool2 = tf.layers.max_pooling2d(inputs=self.conv2_2, name='pool2', pool_size=2, strides=2, padding='same')
-            
-            ################################
-            # CONV3-256 [h/4, w/4, 128] --> [h/4, w/4, 256]
-            self.conv3_1 = self.conv_layer(self.pool2, [3, 3, 128, 256], 'conv3_1')
-            
-            # CONV3-256 [h/4, w/4, 256] --> [h/4, w/4, 256]
-            self.conv3_2 = self.conv_layer(self.conv3_1, [3, 3, 256, 256], 'conv3_2')
-            
-            # CONV3-256 [h/4, w/4, 256] --> [h/4, w/4, 256]
-            self.conv3_3 = self.conv_layer(self.conv3_2, [3, 3, 256, 256], 'conv3_3')
-
-            # MAX POOLING [h/4, w/4, 256] --> [h/8, w/8, 256]
-            self.pool3 = tf.layers.max_pooling2d(inputs=self.conv3_3, name='pool3', pool_size=2, strides=2, padding='same')
-            
-            ################################
-            # CONV3-256 [h/8, w/8, 256] --> [h/8, w/8, 256]
-            self.conv4_1 = self.conv_layer(self.pool3, [3, 3, 256, 256], 'conv4_1')
-            
-            # CONV3-256 [h/8, w/8, 256] --> [h/8, w/8, 256]
-            self.conv4_2 = self.conv_layer(self.conv4_1, [3, 3, 256, 256], 'conv4_2')
-            
-            # CONV3-256 [h/8, w/8, 256]--> [h/8, w/8, 256]
-            self.conv4_3 = self.conv_layer(self.conv4_2, [3, 3, 256, 256], 'conv4_3')
-
-            # MAX POOLING [h/8, w/8, 256] --> [h/16, w/16, 256]
-            self.pool4 = tf.layers.max_pooling2d(inputs=self.conv4_3, name='pool4', pool_size=2, strides=2, padding='same')
-            
-            ################################
-            # CONV3-512 [h/16, w/16, 256] --> [h/16, w/16, 512]
-            self.conv5_1 = self.conv_layer(self.pool4, [3, 3, 256, 512], 'conv5_1')
-            
-            # CONV3-512 [h/16, w/16, 512] --> [h/16, w/16, 512]
-            self.conv5_2 = self.conv_layer(self.conv5_1, [3, 3, 512, 512], 'conv5_2')
-            
-            # CONV3-512 [h/16, w/16, 512] --> [h/16, w/16, 512]
-            self.conv5_3 = self.conv_layer(self.conv5_2, [3, 3, 512, 512], 'conv5_3')
-
-            # MAX POOLING [h/16, w/16, 512] --> [h/32, w/32, 512]
-            self.pool5 = tf.layers.max_pooling2d(inputs=self.conv5_3, name='pool5', pool_size=2, strides=2, padding='same')
-            
-            ################################
-            # SPATIAL PYRAMID POOLING [h/32, w/32, 512] --> [(4*4+2*2+1*1)*512]=[10752] for levels = [4, 2, 1]
+            ### SPP [4, 2, 1]
             self.spp = self.spp_layer(self.pool5, [4, 2, 1], 'spp')
-            
-            ################################
-            # FC-1024 [10752] --> [1024]
-            self.dense1 = self.fc_layer(self.spp, 10752, 1024, 'fc1')
-            
-            # FC-1024 [1024] --> [1024]
-            self.dense2 = self.fc_layer(self.dense1, 1024, 1024, 'fc2')
-            
-            # FC-32 [1024] --> [32]
-            self.output = self.fc_layer(self.dense2, 1024, 32, 'fc3')
-            self.logits = self.fc_layer(self.output, 32, self.nb_classes, 'logits', activation=None, dropout=False)
+            ### FC-1024
+            self.dense1 = Dense(1024)(self.spp)
+            if(self.training):
+                self.dense1 = Dropout(self.dropout_prob)(self.dense1)
+            ### FC-1024
+            self.dense2 = Dense(1024)(self.dense1)
+            if(self.training):
+                self.dense2 = Dropout(self.dropout_prob)(self.dense2)
+            ### FC-32 
+            self.dense3 = Dense(32)(self.dense2)
+            if(self.training):
+                self.dense3 = Dropout(self.dropout_prob)(self.dense3)
+            ### output
+            self.output = Dense(self.nb_classes)(self.dense3)
 
             self.weights_summary(tf.get_variable('conv1_1/kernel',shape=[3,3,nb_channels,64]), 'first_conv_weights')
             #self.weights_summary(tf.get_variable('conv5_3/kernel',shape=[3,3,512,512]), 'last_conv_weights')
@@ -119,178 +158,88 @@ class Model:
         with tf.variable_scope(self.name):
             (nb_pics, height, width, nb_channels) = data.get_shape().as_list()
             
-            # ENCODER PART
-            
+            # VGG-16 encoder
+            ### conv3 - 64
             self.input_layer = tf.cast(data, dtype=tf.float32)            
-            # CONV3-64 [h, w, c] --> [h, w, 64]
-            self.conv1_1 = self.conv_layer(self.input_layer, [3, 3, nb_channels, 64], 'conv1_1')
-
-            # CONV3-64 [h, w, 64] --> [h, w, 64]
-            self.conv1_2 = self.conv_layer(self.conv1_1, [3, 3, 64, 64], 'conv1_2')
+            self.conv1_1 = Conv2D(filters=64, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu', input_shape=(height, width, nb_channels))(self.input_layer)
+            self.conv1_1 = BatchNormalization()(self.conv1_1)
+            self.conv1_2 = Conv2D(filters=64, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv1_1)
+            self.conv1_2 = BatchNormalization()(self.conv1_2)
+            self.pool1 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv1_2)
+            ### conv3 - 128
+            self.conv2_1 = Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool1)
+            self.conv2_1 = BatchNormalization()(self.conv2_1)
+            self.conv2_2 = Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv2_1)
+            self.conv2_2 = BatchNormalization()(self.conv2_2)
+            self.pool2 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv2_2)
+            ### conv3 - 256
+            self.conv3_1 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool2)
+            self.conv3_1 = BatchNormalization()(self.conv3_1)
+            self.conv3_2 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv3_1)
+            self.conv3_2 = BatchNormalization()(self.conv3_2)
+            self.conv3_3 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv3_2)
+            self.conv3_3 = BatchNormalization()(self.conv3_3)
+            self.pool3 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv3_3)
+            ### conv3 - 512
+            self.conv4_1 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool3)
+            self.conv4_1 = BatchNormalization()(self.conv4_1)
+            self.conv4_2 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv4_1)
+            self.conv4_2 = BatchNormalization()(self.conv4_2)
+            self.conv4_3 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv4_2)
+            self.conv4_3 = BatchNormalization()(self.conv4_3)
+            self.pool4 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv4_3)
+            ### conv3 - 512
+            self.conv5_1 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool4)
+            self.conv5_1 = BatchNormalization()(self.conv5_1)
+            self.conv5_2 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv5_1)
+            self.conv5_2 = BatchNormalization()(self.conv5_2)
+            self.conv5_3 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv5_2)
+            self.conv5_3 = BatchNormalization()(self.conv5_3)
+            self.pool5 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv5_3)
             
-            # MAX POOLING [h, w, 64] --> [h/2, w/2, 64]
-            self.pool1 = tf.layers.max_pooling2d(inputs=self.conv1_2, name='pool1', pool_size=2, strides=2, padding='same')
-            
-            ################################
-            # CONV3-128 [h/2, w/2, 64] --> [h/2, w/2, 128]
-            self.conv2_1 = self.conv_layer(self.pool1, [3, 3, 64, 128], 'conv2_1')
-
-            # CONV3-128 [h/2, w/2, 128] --> [h/2, w/2, 128]
-            self.conv2_2 = self.conv_layer(self.conv2_1, [3, 3, 128, 128], 'conv2_2')
-     
-            # MAX POOLING [h/2, w/2, 128] --> [h/4, w/4, 128]
-            self.pool2 = tf.layers.max_pooling2d(inputs=self.conv2_2, name='pool2', pool_size=2, strides=2, padding='same')
-            
-            ################################
-            # CONV3-256 [h/4, w/4, 128] --> [h/4, w/4, 256]
-            self.conv3_1 = self.conv_layer(self.pool2, [3, 3, 128, 256], 'conv3_1')
-            
-            # CONV3-256 [h/4, w/4, 256] --> [h/4, w/4, 256]
-            self.conv3_2 = self.conv_layer(self.conv3_1, [3, 3, 256, 256], 'conv3_2')
-            
-            # CONV3-256 [h/4, w/4, 256] --> [h/4, w/4, 256]
-            self.conv3_3 = self.conv_layer(self.conv3_2, [3, 3, 256, 256], 'conv3_3')
-
-            # MAX POOLING [h/4, w/4, 256] --> [h/8, w/8, 256]
-            self.pool3 = tf.layers.max_pooling2d(inputs=self.conv3_3, name='pool3', pool_size=2, strides=2, padding='same')
-            
-            ################################
-            # CONV3-256 [h/8, w/8, 256] --> [h/8, w/8, 256]
-            self.conv4_1 = self.conv_layer(self.pool3, [3, 3, 256, 256], 'conv4_1')
-            
-            # CONV3-256 [h/8, w/8, 256] --> [h/8, w/8, 256]
-            self.conv4_2 = self.conv_layer(self.conv4_1, [3, 3, 256, 256], 'conv4_2')
-            
-            # CONV3-256 [h/8, w/8, 256]--> [h/8, w/8, 256]
-            self.conv4_3 = self.conv_layer(self.conv4_2, [3, 3, 256, 256], 'conv4_3')
-
-            # MAX POOLING [h/8, w/8, 256] --> [h/16, w/16, 256]
-            self.pool4 = tf.layers.max_pooling2d(inputs=self.conv4_3, name='pool4', pool_size=2, strides=2, padding='same')
-            
-            ################################
-            # CONV3-512 [h/16, w/16, 256] --> [h/16, w/16, 512]
-            self.conv5_1 = self.conv_layer(self.pool4, [3, 3, 256, 512], 'conv5_1')
-            
-            # CONV3-512 [h/16, w/16, 512] --> [h/16, w/16, 512]
-            self.conv5_2 = self.conv_layer(self.conv5_1, [3, 3, 512, 512], 'conv5_2')
-            
-            # CONV3-512 [h/16, w/16, 512] --> [h/16, w/16, 512]
-            self.conv5_3 = self.conv_layer(self.conv5_2, [3, 3, 512, 512], 'conv5_3')
-
-            # MAX POOLING [h/16, w/16, 512] --> [h/32, w/32, 512]
-            self.pool5 = tf.layers.max_pooling2d(inputs=self.conv5_3, name='pool5', pool_size=2, strides=2, padding='same')
-            
-            # DECODER PART
-            
-            # UNPOOLING  [h/32, w/32, 512] --> [h/16, w/16, 512]
+            # Symmetric decoder
+            ### unconv3 - 512
             self.unpool5 = tf.image.resize_nearest_neighbor(self.pool5, tf.shape(self.conv5_3)[1:3], name='unpool5')
-            
-            self.unconv5_3 = self.conv_layer(self.unpool5, [3, 3, 512, 512], 'unconv5_3')
-            
-            self.unconv5_2 = self.conv_layer(self.unconv5_3, [3, 3, 512, 512], 'unconv5_2')
-            
-            self.unconv5_1 = self.conv_layer(self.unconv5_2, [3, 3, 512, 256], 'unconv5_1')
-            
+            self.unconv5_3 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.unpool5)
+            self.unconv5_3 = BatchNormalization()(self.unconv5_3)
+            self.unconv5_2 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.unconv5_3)
+            self.unconv5_2 = BatchNormalization()(self.unconv5_2)
+            self.unconv5_1 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.unconv5_2)
+            self.unconv5_1 = BatchNormalization()(self.unconv5_1)
+            ### unconv3 - 512
             self.unpool4 = tf.image.resize_nearest_neighbor(self.unconv5_1, tf.shape(self.conv4_3)[1:3], name='unpool4')
-            
-            self.unconv4_3 = self.conv_layer(self.unpool4, [3, 3, 256, 256], 'unconv4_3')
-            
-            self.unconv4_2 = self.conv_layer(self.unconv4_3, [3, 3, 256, 256], 'unconv4_2')
-            
-            self.unconv4_1 = self.conv_layer(self.unconv4_2, [3, 3, 256, 256], 'unconv4_1')
-            
+            self.unconv4_3 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.unpool4)
+            self.unconv4_3 = BatchNormalization()(self.unconv4_3)
+            self.unconv4_2 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.unconv4_3)
+            self.unconv4_2 = BatchNormalization()(self.unconv4_2)
+            self.unconv4_1 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.unconv4_2)
+            self.unconv4_1 = BatchNormalization()(self.unconv4_1)
+            ### unconv3 - 256
             self.unpool3 = tf.image.resize_nearest_neighbor(self.unconv4_1, tf.shape(self.conv3_3)[1:3], name='unpool3')
-            
-            self.unconv3_3 = self.conv_layer(self.unpool3, [3, 3, 256, 256], 'unconv3_3')
-            
-            self.unconv3_2 = self.conv_layer(self.unconv3_3, [3, 3, 256, 256], 'unconv3_2')
-            
-            self.unconv3_1 = self.conv_layer(self.unconv3_2, [3, 3, 256, 128], 'unconv3_1')
-            
+            self.unconv3_3 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.unpool3)
+            self.unconv3_3 = BatchNormalization()(self.unconv3_3)
+            self.unconv3_2 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.unconv3_3)
+            self.unconv3_2 = BatchNormalization()(self.unconv3_2)
+            self.unconv3_1 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.unconv3_2)
+            self.unconv3_1 = BatchNormalization()(self.unconv3_1)
+            ### unconv3 - 128
             self.unpool2 = tf.image.resize_nearest_neighbor(self.unconv3_1, tf.shape(self.conv2_2)[1:3], name='unpool2')
-            
-            self.unconv2_2 = self.conv_layer(self.unpool2, [3, 3, 128, 128], 'unconv2_2')
-            
-            self.unconv2_1 = self.conv_layer(self.unconv2_2, [3, 3, 128, 64], 'unconv2_1')
-            
+            self.unconv2_2 = Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.unpool2)
+            self.unconv2_2 = BatchNormalization()(self.unconv2_2)
+            self.unconv2_1 = Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.unconv2_2)
+            self.unconv2_1 = BatchNormalization()(self.unconv2_1)
+            ### unconv3 - 64
             self.unpool1 = tf.image.resize_nearest_neighbor(self.unconv2_1, tf.shape(self.conv1_2)[1:3], name='unpool1')
-            
-            self.unconv1_2 = self.conv_layer(self.unpool1, [3, 3, 64, 64], 'unconv1_2')
-            
-            self.unconv1_1 = self.conv_layer(self.unconv1_2, [3, 3, 64, nb_channels], 'unconv1_1')
-            
+            self.unconv1_2 = Conv2D(filters=64, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.unpool1)
+            self.unconv1_2 = BatchNormalization()(self.unconv1_2)
+            self.unconv1_1 = Conv2D(filters=nb_channels, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.unconv1_2)
+            self.unconv1_1 = BatchNormalization()(self.unconv1_1)
             self.output = tf.cast(self.unconv1_1, dtype=tf.float32, name='output')
             
-            self.model_built = 'VGG_16_encoder_decoder'
             
+            self.model_built = 'VGG_16_encoder_decoder'  
             return self.output
-            
-    def build_small_encoder_decoder(self, data):
-        # data must have size nb_pictures x height x width x nb_channels
-        assert type(data) is tf.Tensor and len(data.shape) == 4
-        with tf.variable_scope(self.name):
-            (nb_pics, height, width, nb_channels) = data.get_shape().as_list()
-            # ENCODER PART
-            self.input_layer = tf.cast(data, dtype=tf.float32)            
-            # CONV3-64 [h, w, c] --> [h, w, 64]
-            self.conv1_1 = self.conv_layer(self.input_layer, [3, 3, nb_channels, 64], 'conv1_1')
-
-            # CONV3-64 [h, w, 64] --> [h, w, 64]
-            self.conv1_2 = self.conv_layer(self.conv1_1, [3, 3, 64, 64], 'conv1_2')
-            
-            # MAX POOLING [h, w, 64] --> [h/2, w/2, 64]
-            self.pool1 = tf.layers.max_pooling2d(inputs=self.conv1_2, name='pool1', pool_size=2, strides=2, padding='same')
-            
-            ################################
-            # CONV3-128 [h/2, w/2, 64] --> [h/2, w/2, 128]
-            self.conv2_1 = self.conv_layer(self.pool1, [3, 3, 64, 128], 'conv2_1')
-
-            # CONV3-128 [h/2, w/2, 128] --> [h/2, w/2, 128]
-            self.conv2_2 = self.conv_layer(self.conv2_1, [3, 3, 128, 128], 'conv2_2')
-     
-            # MAX POOLING [h/2, w/2, 128] --> [h/4, w/4, 128]
-            self.pool2 = tf.layers.max_pooling2d(inputs=self.conv2_2, name='pool2', pool_size=2, strides=2, padding='same')
-            
-            ################################
-            # CONV3-256 [h/4, w/4, 128] --> [h/4, w/4, 256]
-            self.conv3_1 = self.conv_layer(self.pool2, [3, 3, 128, 256], 'conv3_1')
-            
-            # CONV3-256 [h/4, w/4, 256] --> [h/4, w/4, 256]
-            self.conv3_2 = self.conv_layer(self.conv3_1, [3, 3, 256, 256], 'conv3_2')
-            
-            # CONV3-256 [h/4, w/4, 256] --> [h/4, w/4, 256]
-            self.conv3_3 = self.conv_layer(self.conv3_2, [3, 3, 256, 256], 'conv3_3')
-
-            # MAX POOLING [h/4, w/4, 256] --> [h/8, w/8, 256]
-            self.pool3 = tf.layers.max_pooling2d(inputs=self.conv3_3, name='pool3', pool_size=2, strides=2, padding='same')
-            
-            # DECODER PART
-            
-            # UNPOOLING  [h/32, w/32, 512] --> [h/16, w/16, 512]
-            self.unpool3 = tf.image.resize_nearest_neighbor(self.pool3, tf.shape(self.conv3_3)[1:3], name='unpool3')
-            
-            self.unconv3_3 = self.conv_layer(self.unpool3, [3, 3, 256, 256], 'unconv3_3')
-            
-            self.unconv3_2 = self.conv_layer(self.unconv3_3, [3, 3, 256, 256], 'unconv3_2')
-            
-            self.unconv3_1 = self.conv_layer(self.unconv3_2, [3, 3, 256, 128], 'unconv3_1')
-            
-            self.unpool2 = tf.image.resize_nearest_neighbor(self.unconv3_1, tf.shape(self.conv2_2)[1:3], name='unpool2')
-            
-            self.unconv2_2 = self.conv_layer(self.unpool2, [3, 3, 128, 128], 'unconv2_2')
-            
-            self.unconv2_1 = self.conv_layer(self.unconv2_2, [3, 3, 128, 64], 'unconv2_1')
-            
-            self.unpool1 = tf.image.resize_nearest_neighbor(self.unconv2_1, tf.shape(self.conv1_2)[1:3], name='unpool1')
-            
-            self.unconv1_2 = self.conv_layer(self.unpool1, [3, 3, 64, 64], 'unconv1_2')
-            
-            self.unconv1_1 = self.conv_layer(self.unconv1_2, [3, 3, 64, nb_channels], 'unconv1_1')
-            
-            self.output = tf.cast(self.unconv1_1, dtype=tf.float32, name='output')
-            
-            self.model_built = 'small_encoder_decoder'
-            return self.output
+        
         
         
     def build_lstm(self, data, seq_length):
@@ -309,8 +258,8 @@ class Model:
             indices = tf.stack([batch_range, seq_length - 1], axis=1)
             # in each sequence i (range), select the line seq_len[i]-1
             # size : nb_seqs x n_inputs
-            self.output = tf.gather_nd(rnn_output, indices)
-            self.logits = self.fc_layer(self.output, 512, self.nb_classes, 'logits')
+            self.dense = tf.gather_nd(rnn_output, indices)
+            self.output = self.fc_layer(self.dense, 512, self.nb_classes, 'logits')
             self.model_built = 'LSTM'
             self.weights_summary(self.output, 'last_fc_layer')
             return self.output
@@ -318,43 +267,32 @@ class Model:
     
     
     def spp_layer(self, input_, levels=[4, 2, 1], name='spp_layer', pooling='AVG'): # pooling in {'AVG', 'MAX'}
+        # Input shape can be: b x h x w x c (CNN) or b x nb_frames x h x w x c (LRCN, b = 1 if one video at a time)
+        # Returns shape b x N or b x nb_frames x N where N = prod(levels.*levels)*c
+        
         shape = tf.cast(tf.shape(input_), tf.float32)
         with tf.variable_scope(name):
             pool_outputs = []
             for l in levels:
                 # Compute the pooling manually by slicing the input tensor
-                pool_size = tf.cast([tf.ceil(tf.div(shape[1],l)), tf.ceil(tf.div(shape[2], l))], tf.int32)
-                strides= tf.cast([tf.floordiv(shape[1], l), tf.floordiv(shape[2], l)], tf.int32)
+                pool_size = tf.cast([tf.ceil(tf.div(shape[-3],l)), tf.ceil(tf.div(shape[-2], l))], tf.int32)
+                strides= tf.cast([tf.floordiv(shape[-3], l), tf.floordiv(shape[-2], l)], tf.int32)
                 for i in range(l):
                     for j in range(l):
                         # bin (i,j)
-                        tensor_slice = input_[:, i*strides[0]:i*strides[0]+pool_size[0], j*strides[1]:j*strides[1]+pool_size[1],:]
-                        if(pooling == 'AVG'):
-                            pool_outputs.append(tf.reduce_mean(tensor_slice, axis=[1, 2]))
+                        if(len(input_.get_shape()) == 4):
+                            tensor_slice = input_[:, i*strides[0]:i*strides[0]+pool_size[0], j*strides[1]:j*strides[1]+pool_size[1],:]
+                            reduced_axis = [1, 2]
                         else:
-                            pool_outputs.append(tf.reduce_max(tensor_slice, axis=[1,2]))
+                            tensor_slice = input_[:, :, i*strides[0]:i*strides[0]+pool_size[0], j*strides[1]:j*strides[1]+pool_size[1],:]
+                            reduced_axis = [2, 3]
+                        if(pooling == 'AVG'):
+                            pool_outputs.append(tf.reduce_mean(tensor_slice, axis=reduced_axis))
+                        else:
+                            pool_outputs.append(tf.reduce_max(tensor_slice, axis=reduced_axis))
             
             spp = tf.concat(pool_outputs, 1)
             return spp
-
-    def conv_layer(self, input_, filter_shape, name, padding='SAME', activation='relu', strides=[1,1,1,1]):
-        with tf.variable_scope(name):
-            kernel = tf.Variable(tf.random_normal(filter_shape, mean=0, stddev=0.5, dtype=tf.float32), 'kernel')
-            biases = tf.Variable(tf.constant(0, shape=[filter_shape[-1]], dtype=tf.float32), 'biases')
-            # convolve and add bias            
-            conv = tf.nn.conv2d(input_, kernel, strides, padding)
-            conv = tf.nn.bias_add(conv, biases)
-            # if a batch norm is needed, apply it
-            if(self.batch_norm):
-                conv = tf.layers.batch_normalization(conv, training=self.training_mode)
-            if(activation == 'relu'):
-                conv = tf.nn.relu(conv)
-            elif(activation == 'sigmoid'):
-                conv = tf.nn.sigmoid(conv)
-            elif(activation == 'tanh'):
-                conv = tf.nn.tanh(conv)
-            
-            return conv
     
     def fc_layer(self, input_, nb_input, nb_output, name, activation='relu', dropout = True):
         with tf.variable_scope(name):
@@ -392,14 +330,14 @@ class Model:
             # Quick overview of the input batch
             tf.summary.scalar('N_input', tf.shape(self.input_layer)[0])
             tf.summary.scalar('input_size_per_image', tf.reduce_prod(tf.shape(self.input_layer)[1:]))
-            if(self.model_built in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
+            if(self.model_built in {'VGG_16_encoder_decoder'}):
                 self.loss = tf.reduce_mean(tf.abs(tf.subtract(self.input_layer, self.output)))
                 tf.summary.scalar('Loss', self.loss)
             else:
                 # Results
-                self.prob = tf.nn.softmax(self.logits)
+                self.prob = tf.nn.softmax(self.output)
                 self.pred = tf.argmax(self.prob, axis=1)
-                self.loss = tf.losses.softmax_cross_entropy(tf.multiply(tf.one_hot(labels, self.nb_classes), self.loss_weights), self.logits)
+                self.loss = tf.losses.softmax_cross_entropy(tf.multiply(tf.one_hot(labels, self.nb_classes), self.loss_weights), self.output)
                 # Define our metrics
                 self.accuracy, self.accuracy_up = tf.metrics.accuracy(labels, self.pred, name="accuracy")
                 self.precision, self.precision_up = tf.metrics.precision(labels, self.pred, name="precision")
@@ -419,7 +357,10 @@ class Model:
     # Useful for testing phase
     def reset_metrics(self):
         with tf.variable_scope(self.name):
-            reset =  [tf.variables_initializer([self.confusion_matrix])]
+            if(self.model_built in {'LSTM', 'VGG_16'}):
+                reset =  [tf.variables_initializer([self.confusion_matrix])]
+            else:
+                reset = []
             return(reset)
     
     def prob_summary(self, nb_pics):
