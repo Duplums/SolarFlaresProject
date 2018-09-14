@@ -476,18 +476,34 @@ class Data_Downloader:
         JSOC = re.sub(' ' , '_', UTC) + '_TAI'
         return JSOC
     
-    # Get the data from the JSOC data base according to the solar eruptions described
+     # Get only the frames that are:
+     # * related to our AR (same NOAA)
+     # * within +/- 68deg from the central meridian
+     # * before the peak time
+     # from a list of AR keys.
+    @staticmethod
+    def _get_frames_key_from_query(ar_nb, peak_time, keys):
+        list_keys = []
+        for k in range(len(keys.NOAA_AR)):
+            if (keys.NOAA_AR[k] == ar_nb and 
+                abs(keys.LAT_FWT[k]) <= 68 and 
+                abs(keys.LON_FWT[k]) <= 68 and
+                drms.to_datetime(keys.T_REC[k]) <= drms.to_datetime(peak_time)):
+                list_keys += [k]
+ 
+        return list_keys
+    
+    # Gets the data from the JSOC data base according to the solar eruptions described
     # in the GOES data base. The queries are based on SunPy and
-    # the output files are in HDF5 format. The attributes associated to each 
-    # pictures and downloaded are stored in self.ar_attrs. The number of channels
-    # per picture is defined thanks to the attribute self.ar_segs.
+    # the output files are in HDF5 format.
     # Returns True if the data has been dowloaded successfully; False otherwise.
     def download_jsoc_data(self, files_core_name = 'jsoc_data',
                            directory = None,
                            goes_data_path = None, 
                            goes_row_pattern = '(B|C|M|X)[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
                            start_time = None, end_time = None,
-                           hours_before_event = 24, sample_time = '@1h',
+                           nb_frames_before_event = 24, 
+                           sample_time = 1, # in hours
                            limit = 400):
         
         if(directory is None and not os.path.isdir(os.path.join(self.main_path, 'JSOC-Data'))):
@@ -499,7 +515,7 @@ class Data_Downloader:
             print('The path {} does not exist.'.format(os.path.join(self.main_path, directory)))
             return False
         
-        essential_ar_attrs = {'NOAA_AR', 'HARPNUM', 'LAT_FWT', 'LON_FWT'}
+        essential_ar_attrs = {'NOAA_AR', 'HARPNUM', 'LAT_FWT', 'LON_FWT', 'T_REC'}
         essential_goes_attrs = {'start_time', 'peak_time', 'noaa_active_region', 'event_class'}
         jsoc_serie = 'hmi.sharp_cea_720s[1-7256]'
         
@@ -545,7 +561,7 @@ class Data_Downloader:
             
         # Summary
         print('Nb of videos to download: {}/{}'.format(nb_positive, counter))
-        print('Look up of pictures until {}h before an event.'.format(hours_before_event))
+        print('Look up of pictures until {}h before an event.'.format(sample_time*nb_frames_before_event))
         
 
         with open(goes_data_path, 'r', newline='') as file:        
@@ -555,7 +571,12 @@ class Data_Downloader:
             part_counter = 0
             vid_counter = 0
             counter = 0
-            current_save_file = h5py.File('{}_part_{}.hdf5'.format(files_core_name, part_counter), 'w') 
+            current_save_file = h5py.File('{}_part_{}.hdf5'.format(files_core_name, part_counter), 'w')
+            # Get the delta time for the look up in the JSOC data base (with a marge)
+            dt = timedelta(hours=sample_time*(nb_frames_before_event+1))
+            # Change the sampling rate format
+            sample_time = '@{}h'.format(sample_time)
+
             for event in reader:
                 counter += 1
                 if(re.match(goes_row_pattern, str.join(',', event)) and 
@@ -566,71 +587,60 @@ class Data_Downloader:
                     # We process only numbered flares
                     if(ar_nb > 0):
                         peak_time = drms.to_datetime(event[peak])
-                        start_time = peak_time - timedelta(hours=hours_before_event)
+                        start_time = peak_time - dt
                         # Change the date format
                         peak_time = self._UTC2JSOC_time(str(peak_time))
                         start_time = self._UTC2JSOC_time(str(start_time))
+                        
                         # Do the request to JSOC database
                         query = '{}[{}-{}{}]'.format(jsoc_serie, start_time, peak_time, sample_time)
                         if(len(self.ar_segs)==0): keys = client.query(query, key=self.ar_attrs)
                         else: keys, segments = client.query(query, key=self.ar_attrs, seg=self.ar_segs)
                         try:
-                            # Downloads the video of this solar flare and construct 
-                            # the HDF5 file.
-                            nb_frame = len(keys.NOAA_AR)-1
-                            dumping = False
-                            current_vid = current_save_file.create_group('video{}'.format(vid_counter))
-                            vid_counter += 1
-                            for k in range(len(self.goes_attrs)):
-                                current_vid.attrs[self.goes_attrs[k]] = event[k]
+                            # Get only the frames that are:
+                            # * related to our AR (same NOAA)
+                            # * within +/- 68deg from the central meridian
+                            # * before the peak time
+                            frames_keys = self._get_frames_key_from_query(ar_nb, peak_time, keys)
                             
-                            print('Trying to extract data for video {} corresponding to event {}'.format(vid_counter, event[peak]))
-                            frame_counter = 0
-                            while(nb_frame > -1 and not dumping):
-                                right_pic  = (keys.NOAA_AR[nb_frame] == ar_nb)\
-                                   and abs(keys.LAT_FWT[nb_frame]) <= 68\
-                                   and abs(keys.LON_FWT[nb_frame]) <= 68
-                                
-                                #Creates a new frame and add it to the video
-                                if(right_pic):
-                                    current_frame = current_vid.create_group('frame{}'.format(frame_counter))
-                                    frame_counter += 1
-                                    for k in range(len(self.ar_attrs)):
-                                        current_frame.attrs[self.ar_attrs[k]] = keys[self.ar_attrs[k]][nb_frame]
-                                    current_frame.attrs['SEGS'] = np.string_(list(self.ar_segs))
-                                    data_shape = None # unknown 
-                                    frame = None
-                                    seg_counter = 0
-                                    for seg in self.ar_segs:
-                                        url = 'http://jsoc.stanford.edu' + segments[seg][nb_frame]
-                                        data = np.array(fits.getdata(url, cache=False), dtype=np.float32)
-                                        if(data_shape is None):
-                                            data_shape = data.shape
-                                            frame = np.zeros(data_shape + (len(self.ar_segs),), dtype=np.float32)
-                                        frame[:,:,seg_counter] = data
-                                        seg_counter += 1
-                                        mem += data.nbytes    
-                                    current_frame.create_dataset('channels', data=frame)
-
-                                    if(mem/(1024*1024) > 2*self.mem_limit):
-                                        print('Memory usage > {}MB. Dumping...'.format(3*self.mem_limit))
-                                        dumping = True
-                                nb_frame -= 1
-                            if(frame_counter == 0):
-                            #    del current_save_file['video{}'.format(vid_counter)]
-                            #    vid_counter -=1 
-                                print('No frame downloaded, video erased.')
+                            # Do not download videos with missing data
+                            if(len(frames_keys) < nb_frames_before_event):
+                                print('Only {} (< {}) frames found for the SF produced on {}. Ignored.'.format(len(frames_keys), nb_frames_before_event, event[peak]))
                             else:
-                                print('Video {} associated to event {} extracted ({} frames)'.format(vid_counter, event[peak], frame_counter))
+                                current_vid = current_save_file.create_group('video{}'.format(vid_counter))
+                                vid_counter += 1
+                                for k in range(len(self.goes_attrs)):
+                                    current_vid.attrs[self.goes_attrs[k]] = event[k]
+                                if(len(frames_keys) > nb_frames_before_event):
+                                    print('{} frames are found for the SF produced on {}, only the last {} are considered'.format(len(frames_keys), event[peak], nb_frames_before_event))
+                                    frames_keys = frames_keys[len(frames_keys)-nb_frames_before_event:]
+                                # We download each video with the LAST frame corresponding to the eruption
+                                for i in range(nb_frames_before_event):
+                                    current_frame = current_vid.create_group('frame{}'.format(i))
+                                    # Includes the specific attributes to the frame
+                                    current_frame.attrs['SEGS'] = np.string_(list(self.ar_segs))
+                                    for a in self.ar_attrs:
+                                        current_frame.attrs[a] = keys[a][frames_keys[i]]
+                                        
+                                    # Downloads the specific segments
+                                    data_frame = []
+                                    for seg in self.ar_segs:
+                                        url = 'http://jsoc.stanford.edu' + segments[seg][frames_keys[i]]
+                                        data = np.array(fits.getdata(url, cache=False), dtype=np.float32)
+                                        data_frame += [data]
+                                        mem += data.nbytes
+                                    data_frame = np.array(data_frame, dtype=np.float32)
+                                    # Creates the actual data set in the hdf5 file
+                                    current_frame.create_dataset('channels', data=data_frame)
 
                         except: 
-                            print('Impossible to extract data for event {0} (nb {1})'.format(event[peak], counter))
+                            print('Impossible to extract data for event {0}.'.format(event[peak]))
                             print(traceback.format_exc())
                 else: # if the row pattern does not match 
                     print('Row ignored: '+str.join(',', event))
                 
-                if(int(counter*100.0/total_length)%5 == 0):
-                    print(str(counter*100.0/total_length)+'% of GOES data set analyzed')
+                if(counter % 20 == 0):
+                    print('{:0.2f}% of GOES data set analyzed'.format(counter*100.0/total_length))
     
                 # Save the current HDF5 file. Reset vid_counter for the next HDF5 file.
                 if(mem/(1024*1024) > self.mem_limit):
@@ -642,20 +652,21 @@ class Data_Downloader:
         
         # After the downloading, close the last file !
         current_save_file.close()
-        print('Data base has been downloaded successfully !')
+        print('The data base has been downloaded successfully !')
         return True
 
 
-main_path = '/nobackup/bdufumie/SolarFlaresProject/Data/SF/'
-goes_data_path = '/home6/bdufumie/SolarFlaresProject/DataQuery/GOES_dataset_B.csv'
+main_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/Scratch'
+goes_data_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/GOES_dataset_B.csv'
 goes_attrs = utils.config['SF']['goes_attrs']
 ar_attrs = utils.config['SF']['ar_attrs']
 ar_segs = utils.config['SF']['segs']
 
-#downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
-#downloader.download_jsoc_data(files_core_name = 'B_jsoc_data',
-#                           directory = 'B-class-flares-clean',
-#                           goes_data_path =goes_data_path, 
-#                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
-#                           hours_before_event = 24, sample_time = '@1h',
-#                           limit = None)
+downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
+downloader.download_jsoc_data(files_core_name = 'B_jsoc_data',
+                           directory = 'B-class-flares',
+                           goes_data_path =goes_data_path, 
+                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
+                           nb_frames_before_event = 24, 
+                           sample_time = 1,
+                           limit = None)
