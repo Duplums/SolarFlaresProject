@@ -44,7 +44,7 @@ class Data_Gen:
     seq_length_iterator = None
     training_mode = None
     
-    def __init__(self, data_name, config, training=True, max_pic_size=None):
+    def __init__(self, data_name, config, training=True, max_pic_size=None, verbose = False):
         assert data_name in {'SF', 'SF_LSTM', 'MNIST', 'CIFAR-10', 'IMG_NET'}
  
         self.features = []
@@ -83,6 +83,7 @@ class Data_Gen:
             self.main_path = config['testing_paths']
 
         if(data_name in {'MNIST', 'CIFAR-10', 'IMG_NET'}):
+            self.resize_method = config['resize_method']
             print('Warning: no preprocessing for this data base. We assert that the HDF5 files are organized as follows:\n')
             print('\t/features[dataset]\n')
             print('\t/labels[dataset]\n')
@@ -95,7 +96,7 @@ class Data_Gen:
             print('\t\t meta(i) : labels(i) (i in [1,N])\n')
         
         # First checks
-        self.init_paths_to_file()
+        self.init_paths_to_file(verbose)
         
         if(self.max_pic_size is None and data_name == 'SF'):
             print('Computing the maximum of picture size...')
@@ -105,11 +106,12 @@ class Data_Gen:
         else:
             print('Maximum size found : {}'.format(self.max_pic_size))
     
-    def init_paths_to_file(self):
+    def init_paths_to_file(self, verbose = False):
         self.paths_to_file = []
         self.size_of_files = []
         self.nb_total_files = 0
         self.num_files_analyzed = 0
+        nb_files_ignored = 0
         for path in self.main_path:
             if os.path.exists(path):
                 for file in os.listdir(path):   
@@ -121,11 +123,14 @@ class Data_Gen:
                             self.size_of_files += [size/float(self.subsampling)]
                             self.nb_total_files += 1
                         else:
-                            print('Warning: file {} [{}MB] will not fit in memory (> {}MB). Ignored'.format(file, size, self.memory_size))
+                            if(verbose):
+                                print('Warning: file {} [{}MB] will not fit in memory (> {}MB). Ignored'.format(file, size, self.memory_size))
+                            nb_files_ignored += 1
                     else:
                         print('Directory \'{}\' ignored.'.format(path_to_file))
             else:
                 print('Path {} does not exist. Ignored'.format(path))
+        print('Number of files ignored (>{}MB): {}'.format(self.memory_size, nb_files_ignored))
     
      # Returns the maximum size of pictures found in all files
     def get_max_size(self):
@@ -424,12 +429,22 @@ class Data_Gen:
                                         if(frame_counter % self.subsampling == 0):
                                             if('channels' in db[vid_key][frame_key].keys()):
                                                 frame_tensor = Data_Gen._extract_frame(db[vid_key][frame_key]['channels'], db[vid_key][frame_key].attrs['SEGS'], self.segs, verbose)
+                                                if(frame_tensor is None):
+                                                    if(len(self.segs) == 0):
+                                                        print('Warning: no segments to extract.')
+                                                        self.features.clear()
+                                                        self.labels.clear()
+                                                        self.metadata.clear()
+                                                        return
+                                                    else:
+                                                        raise RuntimeError('None frame in file {}, video {}'.format(file_path, vid_key))
                                                 if(self.model_name == 'LRCN'):
                                                     video += [frame_tensor]
                                                 else:
                                                     curr_features += [frame_tensor]
                                                     curr_labels += [label]
                                                     curr_meta += [meta+str(db[vid_key][frame_key].attrs['SIZE_ACR'])+'|'+str(self._to_frame_num(frame_key))]
+                                                
                                                 memory_used += frame_tensor.nbytes
 
                                     if(self.model_name == 'LRCN'):
@@ -458,9 +473,9 @@ class Data_Gen:
                             if(self.database_name in {'MNIST', 'CIFAR-10', 'IMG_NET'}):
                                 if(vid_infos):
                                     print('Warning: no meta data available for data base {}'.format(self.database_name))
-                                curr_features = np.array(db['features'])
-                                curr_labels = np.array(db['labels'])
-                                memory_used += curr_features.nbytes + curr_labels.nbytes
+                                curr_features = np.array(db['features']).tolist()
+                                curr_labels = np.array(db['labels']).tolist()
+                                memory_used += np.array(db['features']).nbytes + np.array(db['labels']).nbytes
                                 
                             elif(self.database_name == 'SF_LSTM'):
                                 curr_features = []
@@ -641,8 +656,7 @@ class Data_Gen:
                                                                  label, *kw), self.num_threads)
             
         else:
-            print('Error: unknown resizing method')
-            raise
+            raise RuntimeError('Error: unknown resizing method')
     
     def create_tf_dataset_and_preprocessing(self, use_metadata = False):
         if(not use_metadata):

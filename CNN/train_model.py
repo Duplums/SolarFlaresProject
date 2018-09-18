@@ -28,7 +28,7 @@ def restore_checkpoint(session, saver, save_dir):
         print("Failed to restore checkpoint.")
         print(traceback.format_exc())
         return False
-
+        
 
 ''' From a config file, this function creates the TF graph according to the model
     defined in 'model.py'. The graph is returned at the end.'''
@@ -39,6 +39,7 @@ def create_TF_graph(data, training):
     model_name = config['model']
     nb_classes = config['nb_classes']
     loss_weights = config['loss_weights']
+    weights_initialization = config['weights_initialization']
     
     with G.as_default():
         
@@ -70,6 +71,7 @@ def create_TF_graph(data, training):
             _model.construct_results(input_data[1])
         elif(model_name == 'VGG_16_encoder_decoder'):
             _model = model.Model('VGG_16_encoder_decoder', training_mode=training)
+            _model.init_weights(weights_initialization)
             _model.build_vgg16_encoder_decoder(input_data[0])
             _model.construct_results()
         elif(model_name == 'LRCN'):
@@ -83,7 +85,7 @@ def create_TF_graph(data, training):
         
         if(training):
             with tf.control_dependencies(update_ops):
-                optimizer = tf.train.GradientDescentOptimizer(learning_rate=dyn_learning_rate)
+                optimizer = tf.train.AdamOptimizer(learning_rate=dyn_learning_rate)
                 grads = optimizer.compute_gradients(_model.loss)
                 grad_step = optimizer.apply_gradients(grads)
         
@@ -143,7 +145,7 @@ def create_TF_graph(data, training):
         
         saver = tf.train.Saver()
 
-    return (G, data_generator, init_ops, ops, metrics_ops, saver)
+    return (G, data_generator, init_ops, ops, metrics_ops, saver, _model)
 
 def train_model(data):
     
@@ -158,7 +160,7 @@ def train_model(data):
     model_name = config['model']
     
     print('Initializing training graph.')
-    G, data_generator, init_ops, ops, metrics_ops, saver = create_TF_graph(data, training=True)
+    G, data_generator, init_ops, ops, metrics_ops, saver, model = create_TF_graph(data, training=True)
     
     sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True,
                                                      intra_op_parallelism_threads=config['num_threads'],
@@ -172,8 +174,7 @@ def train_model(data):
     
     with sess.as_default():
         
-        restore_checkpoint(sess, saver, checkpoint_dir)
-        
+#        restore_checkpoint(sess, saver, checkpoint_dir)
         train_writer = tf.summary.FileWriter(tensorboard_dir, sess.graph)      
         learning_rate = config['learning_rate']
         global_counter = sess.run(G.get_tensor_by_name('global_iterator:0')) 
@@ -207,12 +208,13 @@ def train_model(data):
                     
                     while(not end_of_data):
                         try:
+
                             # Runs the optimization and updates the metrics
                             results = sess.run(ops, feed_dict={G.get_tensor_by_name('learning_rate:0') : learning_rate})
                             
                             # Computes the metrics
                             metrics = sess.run(metrics_ops)
-                            
+
                             # Gets the global iteration counter
                             num_pics_analyzed += sess.run(G.get_tensor_by_name('global_iterator:0')) - global_counter
                             global_counter = sess.run(G.get_tensor_by_name('global_iterator:0'))
@@ -232,21 +234,20 @@ def train_model(data):
                                 if(model_name in {'LSTM', 'VGG_16', 'LRCN'}):
                                     print('Confusion matrix: {}\n'.format(metrics[3]))  
                                 # Prints the reconstruction 
-                                elif(model_name in {'VGG_16_encoder_decoder'}):
-                                    num_segs = len(config['segs'])
-                                    fig = plt.figure(figsize=(num_segs*3, 2*3))
-                                    fig.subplots_adjust(hspace=1.5)
-                                    true_pic = results[3][0]
-                                    rec_pic = results[4][0]
-                                    
-                                    for k in range(num_segs):
-                                        fig.add_subplot(num_segs, 2, 2*k+1)
-                                        plt.imshow(true_pic[:,:,k], cmap='gray')
-                                        plt.title('True '+config['segs'][k])
-                                        fig.add_subplot(num_segs, 2, 2*k+2)
-                                        plt.imshow(rec_pic[:,:,k], cmap='gray')
-                                        plt.title('Reconstructed '+config['segs'][k])
-                                    plt.show()
+#                                elif(model_name in {'VGG_16_encoder_decoder'}):
+#                                    true_pic = results[3][0]
+#                                    rec_pic = results[4][0]
+#                                    num_segs = len(config['segs'])
+#                                    fig = plt.figure(figsize=(num_segs*3, 2*3))
+#                                    fig.subplots_adjust(hspace=1.5)
+#                                    for k in range(num_segs):
+#                                        fig.add_subplot(num_segs, 2, 2*k+1)
+#                                        plt.imshow(true_pic[:,:,k], cmap='gray')
+#                                        plt.title('True '+config['segs'][k])
+#                                        fig.add_subplot(num_segs, 2, 2*k+2)
+#                                        plt.imshow(rec_pic[:,:,k], cmap='gray')
+#                                        plt.title('Reconstructed '+config['segs'][k])
+#                                    plt.show()
                                         
                         except tf.errors.OutOfRangeError:                            
                             end_of_data = True
@@ -383,5 +384,5 @@ if __name__ == '__main__':
     if(args.testing):
         test_model(data, args.test_on_training, args.save_features)
     else:
-        train_model(data)
+        res = train_model(data)
 
