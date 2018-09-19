@@ -70,7 +70,7 @@ def create_TF_graph(data, training):
             _model.build_lstm(input_data[0], input_seq_length)
             _model.construct_results(input_data[1])
         elif(model_name == 'VGG_16_encoder_decoder'):
-            _model = model.Model('VGG_16_encoder_decoder', training_mode=training)
+            _model = model.Model('VGG_16_encoder_decoder', training_mode=training, batch_norm=config['batch_norm'])
             _model.init_weights(weights_initialization)
             _model.build_vgg16_encoder_decoder(input_data[0])
             _model.construct_results()
@@ -85,7 +85,7 @@ def create_TF_graph(data, training):
         
         if(training):
             with tf.control_dependencies(update_ops):
-                optimizer = tf.train.AdamOptimizer(learning_rate=dyn_learning_rate)
+                optimizer = tf.train.MomentumOptimizer(learning_rate=dyn_learning_rate, momentum=0.9)
                 grads = optimizer.compute_gradients(_model.loss)
                 grad_step = optimizer.apply_gradients(grads)
         
@@ -153,6 +153,7 @@ def train_model(data):
     checkpoint_dir = config['checkpoint']
     tensorboard_dir= config['tensorboard']
     learning_rate = config['learning_rate'] # initial learning rate
+    display_plots = config['display']
     #epsilon = config['tolerance'] # useful for updating learning rate
    
     num_epochs = config['num_epochs']
@@ -211,7 +212,7 @@ def train_model(data):
 
                             # Runs the optimization and updates the metrics
                             results = sess.run(ops, feed_dict={G.get_tensor_by_name('learning_rate:0') : learning_rate})
-                            
+                                                        
                             # Computes the metrics
                             metrics = sess.run(metrics_ops)
 
@@ -234,21 +235,20 @@ def train_model(data):
                                 if(model_name in {'LSTM', 'VGG_16', 'LRCN'}):
                                     print('Confusion matrix: {}\n'.format(metrics[3]))  
                                 # Prints the reconstruction 
-#                                elif(model_name in {'VGG_16_encoder_decoder'}):
-#                                    true_pic = results[3][0]
-#                                    rec_pic = results[4][0]
-#                                    num_segs = len(config['segs'])
-#                                    fig = plt.figure(figsize=(num_segs*3, 2*3))
-#                                    fig.subplots_adjust(hspace=1.5)
-#                                    for k in range(num_segs):
-#                                        fig.add_subplot(num_segs, 2, 2*k+1)
-#                                        plt.imshow(true_pic[:,:,k], cmap='gray')
-#                                        plt.title('True '+config['segs'][k])
-#                                        fig.add_subplot(num_segs, 2, 2*k+2)
-#                                        plt.imshow(rec_pic[:,:,k], cmap='gray')
-#                                        plt.title('Reconstructed '+config['segs'][k])
-#                                    plt.show()
-                                        
+                                elif(model_name in {'VGG_16_encoder_decoder'} and display_plots):
+                                    true_pic = results[3][0]
+                                    rec_pic = results[4][0]
+                                    num_segs = len(config['segs'])
+                                    fig = plt.figure(figsize=(num_segs*3, 2*3))
+                                    fig.subplots_adjust(hspace=1.5)
+                                    for k in range(num_segs):
+                                        fig.add_subplot(num_segs, 2, 2*k+1)
+                                        plt.imshow(true_pic[:,:,k], cmap='gray')
+                                        plt.title('True '+config['segs'][k])
+                                        fig.add_subplot(num_segs, 2, 2*k+2)
+                                        plt.imshow(rec_pic[:,:,k], cmap='gray')
+                                        plt.title('Reconstructed '+config['segs'][k])
+                                    plt.show()
                         except tf.errors.OutOfRangeError:                            
                             end_of_data = True
                     
