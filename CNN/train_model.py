@@ -115,7 +115,8 @@ def create_TF_graph(data, training):
                 ops = [merged, grad_step, _model.loss,
                        _model.input_layer, _model.output]
             else:
-                ops = [_model.input_layer, _model.output]
+                ops = [_model.loss, 
+                       _model.input_layer, _model.output]
 #   TODO LIST:                
 #            elif(model_name == 'VGG_16_encoder_decoder'):
 #                ops += [input_data, testing_model.pool5]
@@ -175,7 +176,7 @@ def train_model(data):
     
     with sess.as_default():
         
-#        restore_checkpoint(sess, saver, checkpoint_dir)
+        restore_checkpoint(sess, saver, checkpoint_dir)
         train_writer = tf.summary.FileWriter(tensorboard_dir, sess.graph)      
         learning_rate = config['learning_rate']
         global_counter = sess.run(G.get_tensor_by_name('global_iterator:0')) 
@@ -224,7 +225,7 @@ def train_model(data):
                             train_writer.add_summary(results[0], global_step=results[-1])
                             
                             # Plots in console the metrics we want and hyperparameters
-                            if(step % 10 == 0):
+                            if(step % 2 == 0):
                                 # Prints the memory usage
                                 mem = psutil.virtual_memory()
                                 print('Memory info: {0}% used, {1:.2f} GB available, {2:.2f}% active'.format(mem.percent, mem.available/(1024**3), 100*mem.active/mem.total))
@@ -273,9 +274,9 @@ def test_model(data, test_on_training = False, save_features = False):
     config = utils.config[data]
     checkpoint_dir = config['checkpoint']
     model_name = config['model']
-
+    display_plots = config['display']
     print('Initializing testing graph.')
-    G, data_generator, init_ops, ops, metrics_ops, saver = create_TF_graph(data, training=False)
+    G, data_generator, init_ops, ops, metrics_ops, saver, _ = create_TF_graph(data, training=False)
     
     sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True))
     tf.train.start_queue_runners(sess=sess)
@@ -300,13 +301,13 @@ def test_model(data, test_on_training = False, save_features = False):
                     sess.run(data_generator.seq_length_iterator.initializer)
                 
                 # Begins to load the data into the input TF pipeline
-                step = 0
                 end_of_data = False
+                step = 0
                 while(not end_of_data):
                     try:
                         # Updates the metrics according to the current batch
                         results = sess.run(ops)
-                            
+                        
                         # Computes the metrics
                         metrics = sess.run(metrics_ops)
                         
@@ -316,7 +317,24 @@ def test_model(data, test_on_training = False, save_features = False):
                             labels = results[-2][1]
                             metadata = results[-2][2]
                             data_generator.add_output_features(features, labels, metadata)
-
+                            
+                        # Prints the reconstruction 
+                        if(step % 3 == 0 and 
+                           model_name in {'VGG_16_encoder_decoder'} and 
+                           display_plots):
+                            true_pic = results[1][0]
+                            rec_pic = results[2][0]
+                            num_segs = len(config['segs'])
+                            fig = plt.figure(figsize=(num_segs*3, 2*3))
+                            fig.subplots_adjust(hspace=1.5)
+                            for k in range(num_segs):
+                                fig.add_subplot(num_segs, 2, 2*k+1)
+                                plt.imshow(true_pic[:,:,k], cmap='gray')
+                                plt.title('True '+config['segs'][k])
+                                fig.add_subplot(num_segs, 2, 2*k+2)
+                                plt.imshow(rec_pic[:,:,k], cmap='gray')
+                                plt.title('Reconstructed '+config['segs'][k])
+                            plt.show()
                         step += 1
                     except tf.errors.OutOfRangeError:                            
                         end_of_data = True
@@ -329,12 +347,20 @@ def test_model(data, test_on_training = False, save_features = False):
                     data_generator.dump_output_features()
                 
                 # Plot in the console the current results
+                    # Prints the memory usage
+                mem = psutil.virtual_memory()
+                print('Memory info: {0}% used, {1:.2f} GB available, {2:.2f}% active'.format(mem.percent, mem.available/(1024**3), 100*mem.active/mem.total))
+                    # Prints the confusion matrix
+                if(model_name in {'LSTM', 'VGG_16', 'LRCN'}):
+                    print('Confusion matrix: {}\n'.format(metrics[3]))  
+                    
+                    
                 print('-----\nBATCH {} -----\n'.format(batch_it))
                 print('Current counter: {}\n'.format(global_counter))
                 if(model_name in {'LSTM', 'VGG_16', 'LRCN'}):
-                    print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}\nConfusion Matrix : {}\n'.
-                      format(metrics[0], metrics[1], metrics[2], metrics[4], metrics[3]))
-                elif(model_name in {'VGG_16_encoder_decoder', 'small_encoder_decoder'}):
+                    print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}'.
+                      format(metrics[0], metrics[1], metrics[2], metrics[4]))
+                elif(model_name in {'VGG_16_encoder_decoder'}):
                     print('Loss : {}'.format(results[0]))
                 
                 # Finally, saves the confusion matrix, if needed.

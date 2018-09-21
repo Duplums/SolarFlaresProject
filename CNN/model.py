@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import os
-from tensorflow.keras.layers import TimeDistributed, Conv2D, MaxPooling2D, LSTM, Dense, Dropout, BatchNormalization
+from tensorflow.keras.layers import TimeDistributed, Conv2D, MaxPooling2D, LSTM, Dense, Dropout, BatchNormalization, ConvLSTM2D
 
 class Model:
     
@@ -34,7 +34,7 @@ class Model:
             for f in os.listdir(path_to_weights):
                 weights_name = os.path.splitext(f)[0] # Erase the extension .npy
                 self.weights_init[weights_name] = np.load(os.path.join(path_to_weights, f))
-                self.weights_init[weights_name] = np.random.normal(0, 0.01, self.weights_init[weights_name].shape)
+                self.weights_init[weights_name] = np.random.normal(0, 0.001, self.weights_init[weights_name].shape)
                 print('Weights {} loaded.'.format(weights_name))
         else:
             raise RuntimeError('Imposible to load weights for mode {}'.format(self.name))
@@ -50,49 +50,27 @@ class Model:
          with tf.variable_scope(self.name):
             (_, nb_frames, height, width, nb_channels) = data.get_shape().as_list()
             
-         # VGG-16 encoder (stack)
             ### conv3 - 64
-            self.input_layer = tf.cast(data, dtype=tf.float32)            
-            self.conv1_1 = Conv2D(filters=64, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu', input_shape=(height, width, nb_channels))(self.input_layer)
-            self.conv1_1 = BatchNormalization()(self.conv1_1)
-            self.conv1_2 = Conv2D(filters=64, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv1_1)
-            self.conv1_2 = BatchNormalization()(self.conv1_2)
-            self.pool1 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv1_2)
+            self.input_layer = tf.cast(data, dtype=tf.float32)         
+            self.conv1_1 = TimeDistributed(Conv2D(filters=64, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu', input_shape=(height, width, nb_channels)))(self.input_layer)
+            self.conv1_1 = TimeDistributed(BatchNormalization())(self.conv1_1)
+            self.conv1_2 = TimeDistributed(Conv2D(filters=64, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu'))(self.conv1_1)
+            self.conv1_2 = TimeDistributed(BatchNormalization())(self.conv1_2)
+            self.pool1 = TimeDistributed(MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same'))(self.conv1_2)
             ### conv3 - 128
-            self.conv2_1 = Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool1)
-            self.conv2_1 = BatchNormalization()(self.conv2_1)
-            self.conv2_2 = Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv2_1)
-            self.conv2_2 = BatchNormalization()(self.conv2_2)
-            self.pool2 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv2_2)
-            ### conv3 - 256
-            self.conv3_1 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool2)
-            self.conv3_1 = BatchNormalization()(self.conv3_1)
-            self.conv3_2 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv3_1)
-            self.conv3_2 = BatchNormalization()(self.conv3_2)
-            self.conv3_3 = Conv2D(filters=256, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv3_2)
-            self.conv3_3 = BatchNormalization()(self.conv3_3)
-            self.pool3 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv3_3)
-            ### conv3 - 512
-            self.conv4_1 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool3)
-            self.conv4_1 = BatchNormalization()(self.conv4_1)
-            self.conv4_2 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv4_1)
-            self.conv4_2 = BatchNormalization()(self.conv4_2)
-            self.conv4_3 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv4_2)
-            self.conv4_3 = BatchNormalization()(self.conv4_3)
-            self.pool4 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv4_3)
-            ### conv3 - 512
-            self.conv5_1 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.pool4)
-            self.conv5_1 = BatchNormalization()(self.conv5_1)
-            self.conv5_2 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv5_1)
-            self.conv5_2 = BatchNormalization()(self.conv5_2)
-            self.conv5_3 = Conv2D(filters=512, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu')(self.conv5_2)
-            self.conv5_3 = BatchNormalization()(self.conv5_3)
-            self.pool5 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv5_3)
-          # SPP [4, 2, 1]
-            self.spp = self.spp_layer(self.pool5, [4, 2, 1], 'spp')
-          # LSTM 
-            self.lstm = LSTM(units=512, return_sequences=False, return_state=False, dropout=self.dropout_prob)(self.spp)
-            self.output = Dense(self.nb_classes)(self.lstm)
+            self.conv2_1 = TimeDistributed(Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu'))(self.pool1)
+            self.conv2_1 = TimeDistributed(BatchNormalization())(self.conv2_1)
+            self.conv2_2 = TimeDistributed(Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu'))(self.conv2_1)
+            self.conv2_2 = TimeDistributed(BatchNormalization())(self.conv2_2)
+            self.pool2 = TimeDistributed(MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same'))(self.conv2_2)
+            ### conv3-LSTM - 256
+            self.convLSTM = ConvLSTM2D(filters=256, kernel_size=3, padding='same', activation='tanh', return_sequences=False, return_state=False, dropout=self.dropout_prob)(self.pool2)
+            ### spp - 8 [output = 8*8*256 = 16384]
+            self.spp = self.spp_layer(self.convLSTM, [8], 'spp', pooling='MAX')
+            self.fc1 = Dense(512)(self.spp)
+            if(self.training_mode):
+                self.fc1 = Dropout(self.dropout_prob)(self.fc1)
+            self.output = Dense(self.nb_classes)(self.fc1)
             
             self.model_built = 'LRCN'
             return self.output
@@ -148,15 +126,15 @@ class Model:
             self.spp = self.spp_layer(self.pool5, [4, 2, 1], 'spp')
             ### FC-1024
             self.dense1 = Dense(1024)(self.spp)
-            if(self.training):
+            if(self.training_mode):
                 self.dense1 = Dropout(self.dropout_prob)(self.dense1)
             ### FC-1024
             self.dense2 = Dense(1024)(self.dense1)
-            if(self.training):
+            if(self.training_mode):
                 self.dense2 = Dropout(self.dropout_prob)(self.dense2)
             ### FC-32 
             self.dense3 = Dense(32)(self.dense2)
-            if(self.training):
+            if(self.training_mode):
                 self.dense3 = Dropout(self.dropout_prob)(self.dense3)
             ### output
             self.output = Dense(self.nb_classes)(self.dense3)
