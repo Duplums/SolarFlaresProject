@@ -234,7 +234,7 @@ def train_model(data):
                                         epoch+1, num_epochs, num_files, num_tot_files, num_pics_analyzed, num_pictures, 100*num_pics_analyzed/num_pictures, results[2]))
                                 # Prints the confusion matrix
                                 if(model_name in {'LSTM', 'VGG_16', 'LRCN'}):
-                                    print('Confusion matrix: {}\n'.format(metrics[3]))  
+                                    print('Confusion matrix: \n{}\n'.format(metrics[3]))  
                                 # Prints the reconstruction 
                                 elif(model_name in {'VGG_16_encoder_decoder'} and display_plots):
                                     true_pic = results[3][0]
@@ -293,7 +293,8 @@ def test_model(data, test_on_training = False, save_features = False):
                 end_of_batch = data_generator.gen_batch_dataset(save_extracted_data=False, 
                                                                 retrieve_data=False,
                                                                 take_random_files = False,
-                                                                get_metadata=True)
+                                                                get_metadata=True,
+                                                                verbose=True)
                     
                 # Initializes the iterator on the current batch 
                 sess.run(data_generator.data_iterator.initializer)
@@ -381,7 +382,7 @@ if __name__ == '__main__':
     parser.add_argument("--test_on_training", help="If this option and testing mode enabled, it tests the model on the training data set", default=False, action='store_true')
     parser.add_argument("--data_dims", nargs="+", help="Set the dimensions of feature ([H, W, C] for pictures) in the data set. None values accepted.")
     parser.add_argument("--batch_memsize", type=int, help="Set the memory size of each batch loaded in memory. (in MB)")
-    parser.add_argument("-m", "--model", type=str, help="Set the neural network model used.", choices=["VGG_16", "LSTM", "VGG_16_encoder_decoder", "small_encoder_decoder"])
+    parser.add_argument("-m", "--model", type=str, help="Set the neural network model used.", choices=["VGG_16", "LSTM", "VGG_16_encoder_decoder", "LRCN"])
     parser.add_argument("-t", "--num_threads", type=int, help="Set the number of threads used for the preprocessing.")
     parser.add_argument("-c", "--checkpoint", type=str, help="Set the path to the checkpoint directory.")
     parser.add_argument("--tensorboard", type=str, help="Set the path to the tensorboard directory.")

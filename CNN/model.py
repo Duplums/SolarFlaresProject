@@ -67,7 +67,7 @@ class Model:
             self.convLSTM = ConvLSTM2D(filters=256, kernel_size=3, padding='same', activation='tanh', return_sequences=False, return_state=False, dropout=self.dropout_prob)(self.pool2)
             ### spp - 8 [output = 8*8*256 = 16384]
             self.spp = self.spp_layer(self.convLSTM, [8], 'spp', pooling='MAX')
-            self.fc1 = Dense(512)(self.spp)
+            self.fc1 = Dense(512, activation='relu')(self.spp)
             if(self.training_mode):
                 self.fc1 = Dropout(self.dropout_prob)(self.fc1)
             self.output = Dense(self.nb_classes)(self.fc1)

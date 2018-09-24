@@ -656,17 +656,17 @@ class Data_Downloader:
         return True
 
 
-main_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/Scratch'
-goes_data_path = '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/GOES_dataset_B.csv'
+main_path = '/nobackup/bdufumie/SolarFlaresProject/Data/SF/tmp/'
+goes_data_path = '/home6/bdufumie/SolarFlaresProject/DataQuery/GOES_dataset.csv'
 goes_attrs = utils.config['SF']['goes_attrs']
 ar_attrs = utils.config['SF']['ar_attrs']
 ar_segs = utils.config['SF']['segs']
 
 downloader = Data_Downloader(main_path, goes_attrs, ar_attrs, ar_segs)
-downloader.download_jsoc_data(files_core_name = 'B_jsoc_data',
-                           directory = 'B-class-flares',
+downloader.download_jsoc_data(files_core_name = 'M_X_jsoc_data',
+                           directory = 'M-X-class-flares',
                            goes_data_path =goes_data_path, 
-                           goes_row_pattern = 'B[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
-                           nb_frames_before_event = 24, 
+                           goes_row_pattern = '(M|X)[1-9]\.[0-9],[1-9][0-9]*,.*,.*,.*,.*', 
+                           nb_frames_before_event = 48, 
                            sample_time = 1,
                            limit = None)
