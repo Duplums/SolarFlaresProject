@@ -164,24 +164,35 @@ class Data_Gen:
         res = [[] for k in range(len(scalars))]
         sample_time = []
         tf = drms.to_datetime(vid.attrs['end_time'])
-        first_frame = None
+        last_frame = None
         for frame_key in sorted(list(vid.keys()), key=lambda frame_key : float(frame_key[5:])):
             if('channels' in vid[frame_key].keys() and
                len(vid[frame_key]['channels'].shape) == 3):
                 ti = drms.to_datetime(vid[frame_key].attrs['T_REC'])
                 sample_time += [(tf - ti).total_seconds()/60]
-                if(first_frame is None):
-                    first_frame = Data_Gen._extract_frame(vid[frame_key]['channels'], vid[frame_key].attrs['SEGS'], channels)
                 i = 0
                 for scalar in scalars:
-                    if(scalar == 'RMS'):
+                    if(scalar == 'l1_err' or scalar == 'TV'):
                         l1_err = 0
+                        TV = 0
                         try:
-                            for c in range(first_frame.shape[2]):
+                            this_frame = Data_Gen._extract_frame(vid[frame_key]['channels'], vid[frame_key].attrs['SEGS'], channels)
+                            if(last_frame is None and scalar == 'l1_err'):
+                                last_frame = this_frame
+                            for c in range(last_frame.shape[2]):
                                 if(vid[frame_key].attrs['SEGS'][c].decode() in channels):
-                                        this_frame = Data_Gen._extract_frame(vid[frame_key]['channels'], vid[frame_key].attrs['SEGS'], channels)
-                                        l1_err += np.sum(np.abs(sk.resize(this_frame[:,:,c], first_frame.shape[:2], preserve_range=True)-first_frame[:,:,c]))
-                            res[i] += [l1_err/np.product(first_frame.shape[0:2])*len(channels)]
+                                        if(scalar == 'l1_err'):
+                                            l1_err += np.sum(np.abs(sk.resize(this_frame[:,:,c], last_frame.shape[:2], preserve_range=True)-last_frame[:,:,c]))
+                                            last_frame = this_frame
+                                        else:
+                                            # only valid total variation
+                                            TV += np.sum(np.sqrt(np.square(np.diff(this_frame[:,:,c], axis=0)[:, 1:])) + 
+                                                                 np.square(np.diff(this_frame[:,:,c], axis=1)[1:, :]))
+                            normalization = np.product(last_frame.shape[0:2])*len(channels)
+                            if(scalar == 'TV'):
+                                res[i] += [TV/normalization]
+                            else:
+                                res[i] += [l1_err/normalization]
                         except:
                             sample_time = sample_time[:-1]
                             print('Frame {} not extracted.'.format(frame_key))
