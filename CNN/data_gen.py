@@ -158,9 +158,10 @@ class Data_Gen:
         return max_size
     
      # Takes a video and a list of scalars as input and returns the corresponding
-    # time series.
+    # time series. If 'time_event_last_frame', then the eruption occurs in the last
+    # frame so the result needs to be reversed.
     @staticmethod
-    def _extract_timeseries_from_video(vid, scalars, channels):
+    def _extract_timeseries_from_video(vid, scalars, channels, time_event_last_frame = True):
         res = [[] for k in range(len(scalars))]
         sample_time = []
         tf = drms.to_datetime(vid.attrs['end_time'])
@@ -200,8 +201,9 @@ class Data_Gen:
                     else:
                         res[i] += [vid[frame_key].attrs[scalar]]
                     i += 1
+        if(time_event_last_frame):
+            return np.flip(np.array(res), axis=1), np.flip(np.array(sample_time), axis=0)
         return np.array(res), np.array(sample_time)
-    
     # Extracts some scalars from video that evolve according to the time (ex: SIZE of a frame).
     # The scalar must be in the frame attributes of a video. These time series are concatenated
     # in one list for every videos. 'tstart' and 'tend' are used to know when the time series
@@ -236,7 +238,7 @@ class Data_Gen:
                                 i_end = np.argmin(abs(vid_sample_time - tend))
                                 if(np.any(np.isnan(vid_time_series))):
                                     print('Video {} ignored because the time series associated contains \'NaN\'.'.format(vid_key))
-                                elif(abs(sample_time[i_start] - tstart) <= time_step):
+                                elif(abs(vid_sample_time[i_start] - tstart) <= time_step):
                                     nb_frames_in_vid = i_end - i_start + 1
                                     if(1 - nb_frames_in_vid/nb_frames <= loss):
                                         res_vid = np.zeros((nb_scalars, nb_frames), dtype=np.float32)
@@ -247,7 +249,7 @@ class Data_Gen:
                 except:
                     print('Impossible to extract time series from file {}'.format(file_path))
                     print(traceback.format_exc())
-                    sys.exit(0)
+                    raise
             else:
                 print('File {} does not exist. Ignored'.format(file_path))
 
