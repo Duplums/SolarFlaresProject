@@ -14,13 +14,17 @@ class Model:
     lambda_reg = None
     weigths_init = None
     model_built = None
+    pb_kind = None
     
-    def __init__(self, name = 'neural_network',\
-                 nb_classes = 2, training_mode = True,\
-                 batch_norm = True, dropout_prob = 0.4,\
-                 lambda_reg = 0.1,\
+    def __init__(self, name = 'neural_network',
+                 pb_kind = 'classification',
+                 nb_classes = 2, training_mode = True,
+                 batch_norm = True, dropout_prob = 0.4,
+                 lambda_reg = 0.1,
                  loss_weights = [1, 1]):
+        
         self.name = name
+        self.pb_kind = pb_kind
         self.nb_classes = nb_classes
         self.training_mode = training_mode
         self.dropout_prob = dropout_prob
@@ -67,11 +71,17 @@ class Model:
             self.convLSTM = ConvLSTM2D(filters=256, kernel_size=3, padding='same', activation='tanh', return_sequences=False, return_state=False, dropout=self.dropout_prob)(self.pool2)
             ### spp - 8 [output = 8*8*256 = 16384]
             self.spp = self.spp_layer(self.convLSTM, [8], 'spp', pooling='MAX')
-            self.fc1 = Dense(512)(self.spp)
+            self.fc1 = Dense(512, activation='relu')(self.spp)
             if(self.training_mode):
                 self.fc1 = Dropout(self.dropout_prob)(self.fc1)
-            self.output = Dense(self.nb_classes)(self.fc1)
-            
+                
+            if(self.pb_kind == 'classification'):
+                self.output = Dense(self.nb_classes)(self.fc1)
+            elif(self.pb_kind == 'regression'):
+                self.output = Dense(1)(self.fc1)
+            else:
+                print('Illegal kind of problem for LRCN model: {}'.format(self.pb_kind))
+                
             self.model_built = 'LRCN'
             return self.output
             
@@ -125,7 +135,7 @@ class Model:
             ### SPP [4, 2, 1]
             self.spp = self.spp_layer(self.pool5, [4, 2, 1], 'spp')
             ### FC-1024
-            self.dense1 = Dense(1024)(self.spp)
+            self.dense1 = Dense(1024, activation='relu')(self.spp)
             if(self.training_mode):
                 self.dense1 = Dropout(self.dropout_prob)(self.dense1)
             ### FC-1024
@@ -133,12 +143,17 @@ class Model:
             if(self.training_mode):
                 self.dense2 = Dropout(self.dropout_prob)(self.dense2)
             ### FC-32 
-            self.dense3 = Dense(32)(self.dense2)
+            self.dense3 = Dense(32, activation='relu')(self.dense2)
             if(self.training_mode):
                 self.dense3 = Dropout(self.dropout_prob)(self.dense3)
             ### output
-            self.output = Dense(self.nb_classes)(self.dense3)
-
+            if(self.pb_kind == 'classification'):
+                self.output = Dense(self.nb_classes)(self.dense3)
+            elif(self.pb_kind == 'regression'):
+                self.output = Dense(1)(self.dense3)
+            else:
+                print('Illegal kind of problem for VGG-16 model: {}'.format(self.pb_kind))
+            
             self.weights_summary(tf.get_variable('conv1_1/kernel',shape=[3,3,nb_channels,64]), 'first_conv_weights')
             #self.weights_summary(tf.get_variable('conv5_3/kernel',shape=[3,3,512,512]), 'last_conv_weights')
             #self.weights_summary(self.dense2, '1024_fc_layer')
@@ -179,7 +194,7 @@ class Model:
             self.conv2_2 = tf.layers.conv2d(self.conv2_1, filters=128, kernel_size=(3, 3), 
                                             kernel_initializer=tf.constant_initializer(self.weights_init['conv2_2_W']), 
                                             bias_initializer=tf.constant_initializer(self.weights_init['conv2_2_b']),
-                                            kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
+                                            kernel_regulamodel_name in {'LSTM', 'VGG_16', 'LRCN'}rizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
                                             strides=(1,1), padding='same', activation='relu')
             if(self.batch_norm): self.conv2_2 = tf.layers.batch_normalization(self.conv2_2)
             self.pool2 = tf.layers.max_pooling2d(self.conv2_2, pool_size=(2,2), strides=(2,2), padding='same')
@@ -286,6 +301,7 @@ class Model:
                                               kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
                                               strides=(1,1), padding='same', activation='relu')
             if(self.batch_norm): self.unconv4_1 = tf.layers.batch_normalization(self.unconv4_1)
+            ### Skip connection 1
             self.unconv4_1 = tf.add(self.unconv4_1, self.conv4_1)
             ### unconv3 - 256
             self.unpool3 = tf.image.resize_images(self.unconv4_1, tf.shape(self.conv3_1)[1:3], align_corners=True)
@@ -307,6 +323,7 @@ class Model:
                                               kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
                                               strides=(1,1), padding='same', activation='relu')
             if(self.batch_norm): self.unconv3_1 = tf.layers.batch_normalization(self.unconv3_1)
+            ### Skip connection 2
             self.unconv3_1 = tf.add(self.unconv3_1, self.conv3_1)
             ### unconv3 - 128
             self.unpool2 = tf.image.resize_images(self.unconv3_2, tf.shape(self.conv2_1)[1:3], align_corners=True)
@@ -322,6 +339,7 @@ class Model:
                                               kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
                                               strides=(1,1), padding='same', activation='relu')    
             if(self.batch_norm): self.unconv2_1 = tf.layers.batch_normalization(self.unconv2_1)
+            ### Skip connection 3
             self.unconv2_1 = tf.add(self.unconv2_1, self.conv2_1)
             ### unconv3 - 64
             self.unpool1 = tf.image.resize_images(self.unconv2_1, tf.shape(self.conv1_1)[1:3], align_corners=True)
@@ -336,8 +354,12 @@ class Model:
                                               bias_initializer=tf.constant_initializer(self.weights_init['conv1_1_b'][:3]),
                                               kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
                                               strides=(1,1), padding='same', activation=None, name='unconv1_1')
-            self.output = tf.cast(self.unconv1_1, dtype=tf.float32, name='output')
             
+            if(self.pb_kind == 'encoder'):
+                self.output = tf.cast(self.unconv1_1, dtype=tf.float32, name='output')
+            else:
+                print('Illegal kind of problem for VGG-16 autoencoder model: {}'.format(self.pb_kind))
+                
             self.weights_summary(tf.get_variable('conv1_1/kernel',shape=[3,3,nb_channels,64]), 'first_conv_weights')
             self.weights_summary(tf.get_variable('unconv1_1/kernel',shape=[3,3,64,nb_channels]), 'last_unconv_weights')
             self.weights_summary(tf.get_variable('unconv1_2/kernel',shape=[3,3,128, 64]), 'before_last_unconv_weights')
@@ -364,9 +386,19 @@ class Model:
             # in each sequence i (range), select the line seq_len[i]-1
             # size : nb_seqs x n_inputs
             self.dense = tf.gather_nd(rnn_output, indices)
-            self.output = self.fc_layer(self.dense, 512, self.nb_classes, 'logits')
+            self.dense = Dense(512, activation='relu')(self.dense)
+            if(self.training):
+                self.dense = Dropout(self.dropout_prob)(self.dense)
+                
+            if(self.pb_kind == 'classification'):
+                self.output = Dense(self.nb_classes)(self.dense)
+            elif(self.pb_kind == 'regression'):
+                self.output = Dense(self.nb_classes)(self.dense3)
+            else:
+                print('Illegal kind of problem for LSTM model: {}'.format(self.pb_kind))
+            
+            
             self.model_built = 'LSTM'
-            self.weights_summary(self.output, 'last_fc_layer')
             return self.output
         
     
@@ -397,27 +429,7 @@ class Model:
                             pool_outputs.append(tf.reduce_max(tensor_slice, axis=reduced_axis))
             
             spp = tf.concat(pool_outputs, 1)
-            return spp
-    
-    def fc_layer(self, input_, nb_input, nb_output, name, activation='relu', dropout = True):
-        with tf.variable_scope(name):
-            weights = tf.Variable(tf.random_normal([nb_input, nb_output], mean=0, stddev=0.5, dtype=tf.float32), 'weights')
-            biases = tf.Variable(tf.constant(0, shape=[nb_output], dtype=tf.float32), 'biases')
-            # mult and add bias
-            fc = tf.matmul(input_, weights) + biases
-            # if a batch norm is needed, apply it
-            if(self.batch_norm):
-                fc = tf.layers.batch_normalization(fc, training=self.training_mode)
-            if(activation == 'relu'):
-                fc = tf.nn.relu(fc)
-            elif(activation == 'sigmoid'):
-                fc = tf.nn.signoid(fc)
-            elif(activation == 'tanh'):
-                fc = tf.nn.tanh(fc)
-            if(dropout):
-                fc = tf.layers.dropout(fc, self.dropout_prob, training=self.training_mode)
-            
-            return fc
+            return spp, pool_size, strides, tensor_slice
     
     def update_confusion_matrix(self, labels, pred, name):
         with tf.variable_scope(name):
@@ -435,10 +447,12 @@ class Model:
             # Quick overview of the input batch
             tf.summary.scalar('N_input', tf.shape(self.input_layer)[0])
             tf.summary.scalar('input_size_per_image', tf.reduce_prod(tf.shape(self.input_layer)[1:]))
-            if(self.model_built in {'VGG_16_encoder_decoder'}):
+            
+            if(self.pb_kind == 'encoder'):
                 self.loss = tf.reduce_mean(tf.square(tf.subtract(self.input_layer, self.output))) #+ 0.1*tf.losses.get_regularization_loss()
                 tf.summary.scalar('Loss', self.loss)
-            else:
+            
+            elif(self.pb_kind == 'classification'):
                 # Results
                 self.prob = tf.nn.softmax(self.output)
                 self.pred = tf.argmax(self.prob, axis=1)
@@ -458,6 +472,15 @@ class Model:
                                                  [1, self.nb_classes, self.nb_classes, 1])
                 tf.summary.image('confusion', confusion_image)
                 self.vector_summary(self.accuracy_per_class, 'Accuracy_Per_Class')
+            
+            elif(self.pb_kind == 'regression'):
+                self.loss = tf.losses.mean_squared_error(self.output, labels)
+                self.MSE, self.MSE_up = tf.metrics.mean_squared_error(labels, self.output, name="MSE")
+                tf.summary.scalar('Loss', self.loss)
+                
+            else:
+                print('Unknown problem : {}'.format(self.pb_kind))
+                raise
             
     # Useful for testing phase
     def reset_metrics(self):
@@ -489,14 +512,5 @@ class Model:
             n_vec = vec.get_shape()[0]
             for k in range(n_vec):
                 tf.summary.scalar('Component_{}'.format(k), vec[k])
-        
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
     
