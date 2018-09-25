@@ -236,9 +236,9 @@ class Data_Gen:
                             if(len(vid_sample_time) > 0):
                                 i_start = np.argmin(abs(vid_sample_time - tstart))
                                 i_end = np.argmin(abs(vid_sample_time - tend))
-                                if(np.any(np.isnan(vid_time_series))):
-                                    print('Video {} ignored because the time series associated contains \'NaN\'.'.format(vid_key))
-                                elif(abs(vid_sample_time[i_start] - tstart) <= time_step):
+                                #if(np.any(np.isnan(vid_time_series))):
+                                #    print('Video {} ignored because the time series associated contains \'NaN\'.'.format(vid_key))
+                                if(abs(vid_sample_time[i_start] - tstart) <= time_step):
                                     nb_frames_in_vid = i_end - i_start + 1
                                     if(1 - nb_frames_in_vid/nb_frames <= loss):
                                         res_vid = np.zeros((nb_scalars, nb_frames), dtype=np.float32)
@@ -460,7 +460,7 @@ class Data_Gen:
                                                 
                                                 memory_used += frame_tensor.nbytes
 
-                                    if(self.model_name == 'LRCN'):
+                                    if(self.model_name == 'LRCN' and len(video) > 0):
                                         curr_features += [self._resize_video(video)]
                                         curr_labels += [label]
                                         curr_meta += [meta]
