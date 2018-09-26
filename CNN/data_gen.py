@@ -43,6 +43,7 @@ class Data_Gen:
     metadata = None
     seq_length_iterator = None
     training_mode = None
+    pb_kind = None
     
     def __init__(self, data_name, config, training=True, max_pic_size=None, verbose = False):
         assert data_name in {'SF', 'SF_LSTM', 'MNIST', 'CIFAR-10', 'IMG_NET'}
@@ -53,6 +54,7 @@ class Data_Gen:
         self.memory_size =  config['batch_memsize']
         self.data_dims = config['data_dims']
         self.database_name = data_name
+        self.pb_kind = config['pb_kind']
         self.training_mode = training
         self.model_name = config['model']
         self.nb_classes = config['nb_classes']
@@ -256,12 +258,19 @@ class Data_Gen:
         return np.array(res, dtype=np.float32), sample_time
     
     # Assigns a label (int number) associated to a flare class.
-    # This label depends of the number of classes.
+    # This label depends of the number of classes for a classification pb.
     def _label(self, flare_class):
-        if(self.nb_classes == 2):
-            return int(flare_class[0] >= 'M')
+        if(self.pb_kind in {'classification', 'encoder'}):   
+            if(self.nb_classes == 2):
+                return int(flare_class[0] >= 'M')
+            else:
+                print('Number of classes > 2 case : not yet implemented')
+                raise
+        elif(self.pb_kind == 'regression'):
+            flare_level = {'A': 1e-4, 'B': 1e-3, 'C': 1e-2, 'M': 1e-1, 'X': 1}
+            return flare_level[flare_class[0]] * float(flare_class[1:])
         else:
-            print('Number of classes > 2 case : not yet implemented')
+            print('Illegal problem for assigning a label: {}'.format(self.pb_kind))
             raise
     
     # Resizes every frame in a video according to the data_dims param (if None: 
@@ -465,7 +474,7 @@ class Data_Gen:
                                         curr_labels += [label]
                                         curr_meta += [meta]
                                         
-                                print('Data extracted.')
+                                print('Data extracted from {}.'.format(os.path.basename(file_path)))
                                 if(saving):
                                     try:
                                         with open(features_path, 'wb') as f:
@@ -672,16 +681,23 @@ class Data_Gen:
             raise RuntimeError('Error: unknown resizing method')
     
     def create_tf_dataset_and_preprocessing(self, use_metadata = False):
-        if(not use_metadata):
+        if(self.pb_kind in {'classification', 'encoder'}):
             output_types = (tf.float32, tf.int32)
-            output_shapes = (tf.TensorShape([None for k in range(len(self.data_dims)-1)] + [self.data_dims[-1]]), tf.TensorShape([]))
+        elif(self.pb_kind == 'regression'):
+            output_types = (tf.float32, tf.float32)
         else:
-            output_types = (tf.float32, tf.int32, tf.string)
-            output_shapes = (tf.TensorShape([None for k in range(len(self.data_dims)-1)] + [self.data_dims[-1]]), tf.TensorShape([]), tf.TensorShape([]))
+            print('Illegal kind of problem: {}'.format(self.pb_kind))
+            raise
+        output_shapes = (tf.TensorShape([None for k in range(len(self.data_dims)-1)] + [self.data_dims[-1]]), tf.TensorShape([]))
+        
+        if(use_metadata):
+            output_types += (tf.string,)
+            output_shapes += (tf.TensorShape([]),)
         
         self.dataset = tf.data.Dataset.from_generator(lambda: Data_Gen.generator(self.features, self.labels, self.metadata, use_metadata),
                                                       output_types = output_types,
                                                       output_shapes = output_shapes)
+        
         if(self.model_name in {'VGG_16', 'VGG_16_encoder_decoder'}):
             self.data_preprocessing()
             self.dataset = self.dataset.apply(tf.contrib.data.group_by_window(lambda pic, label, *kw: self._get_key_from_tensor(pic),
@@ -700,8 +716,8 @@ class Data_Gen:
             self.dataset = self.dataset.map(lambda video, label, *kw: (tf.map_fn(lambda img : tf.image.per_image_standardization(img), video, parallel_iterations=self.num_threads),
                                                                        label, *kw),
                                             self.num_threads)
-            self.dataset = self.dataset.batch(1)
-            self.dataset = self.dataset.prefetch(buffer_size = 1)
+            self.dataset = self.dataset.batch(self.batch_size)
+            self.dataset = self.dataset.prefetch(buffer_size = self.prefetch_buffer_size)
         
         self.data_iterator = self.dataset.make_initializable_iterator()
         

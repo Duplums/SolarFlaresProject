@@ -37,6 +37,7 @@ def create_TF_graph(data, training):
     
     config = utils.config[data]
     model_name = config['model']
+    pb_kind = config['pb_kind']
     nb_classes = config['nb_classes']
     loss_weights = config['loss_weights']
     weights_initialization = config['weights_initialization']
@@ -59,25 +60,34 @@ def create_TF_graph(data, training):
         it_global = tf.Variable(tf.constant(0, shape=[], dtype=tf.int32), trainable=False, name='global_iterator')
         update_it_global = tf.assign_add(it_global, tf.shape(input_data[0])[0]) 
         if(model_name == 'VGG_16'):
-            _model = model.Model('VGG_16', nb_classes, batch_norm=config['batch_norm'], 
+            _model = model.Model('VGG_16', pb_kind=pb_kind,
+                                         nb_classes=nb_classes, 
+                                         batch_norm=config['batch_norm'], 
                                          dropout_prob=config['dropout_prob'], loss_weights=loss_weights,
                                          training_mode=training)
             _model.build_vgg16_like(input_data[0])
             _model.construct_results(input_data[1])
         elif(model_name == 'LSTM'):
-            _model = model.Model('LSTM', nb_classes, loss_weights=loss_weights,
+            _model = model.Model('LSTM', pb_kind=pb_kind,
+                                         nb_classes=nb_classes,
+                                         loss_weights=loss_weights,
                                          training_mode=training)
             _model.build_lstm(input_data[0], input_seq_length)
             _model.construct_results(input_data[1])
         elif(model_name == 'VGG_16_encoder_decoder'):
-            _model = model.Model('VGG_16_encoder_decoder', training_mode=training, batch_norm=config['batch_norm'])
+            _model = model.Model('VGG_16_encoder_decoder', 
+                                 pb_kind=pb_kind,
+                                 training_mode=training, 
+                                 batch_norm=config['batch_norm'])
             _model.init_weights(weights_initialization)
             _model.build_vgg16_encoder_decoder(input_data[0])
             _model.construct_results()
         elif(model_name == 'LRCN'):
-            _model = model.Model('LRCN', nb_classes, training, 
-                                 dropout_prob=config['dropout_prob'], 
-                                 loss_weights=loss_weights)
+            _model = model.Model('LRCN', pb_kind=pb_kind,
+                                         nb_classes=nb_classes,
+                                         training_mode=training,
+                                         dropout_prob=config['dropout_prob'], 
+                                         loss_weights=loss_weights)
             _model.build_lrcn(input_data[0])
             _model.construct_results(input_data[1])
        
@@ -92,7 +102,7 @@ def create_TF_graph(data, training):
         merged = tf.summary.merge_all()
         
         # Defines the results we want in 'ops'
-        if(model_name in {'LSTM', 'VGG_16', 'LRCN'}):
+        if(pb_kind == 'classification'):
             if(training):
                 ops = [merged, grad_step, _model.loss, 
                        _model.prob, _model.accuracy_up,
@@ -107,32 +117,36 @@ def create_TF_graph(data, training):
                        _model.pred]
                 if(model_name == 'LSTM'):
                     ops += [input_data, _model.output]
-                else:
+                elif(model_name == 'VGG_16'):
                     ops += [input_data, _model.spp]
         
-        elif(model_name in {'VGG_16_encoder_decoder'}):
+        elif(pb_kind == 'encoder'):
             if(training):
                 ops = [merged, grad_step, _model.loss,
                        _model.input_layer, _model.output]
             else:
                 ops = [_model.loss, 
                        _model.input_layer, _model.output]
-#   TODO LIST:                
-#            elif(model_name == 'VGG_16_encoder_decoder'):
-#                ops += [input_data, testing_model.pool5]
-#            elif(model_name == 'small_encoder_decoder'):
-#                ops += [input_data, testing_model.pool3]
+        
+        elif(pb_kind == 'regression'):
+            if(training):
+                ops = [merged, grad_step, _model.loss,
+                       _model.MSE_up]
+            else:
+                ops = [_model.loss, _model.MSE_up]
 
         # Adds the global iteration counter    
         ops += [update_it_global]
         
         # Defines the metrics we want 
-        if(model_name in {'LSTM', 'VGG_16', 'LRCN'}):
+        if(pb_kind == 'classification'):
             metrics_ops = [_model.accuracy, 
                            _model.precision, 
                            _model.recall, 
                            _model.confusion_matrix,
                            _model.accuracy_per_class]
+        elif(pb_kind == 'regression'):
+            metrics_ops = [_model.MSE]
         else:
             metrics_ops = []
         
@@ -151,6 +165,7 @@ def create_TF_graph(data, training):
 def train_model(data):
     
     config = utils.config[data]
+    pb_kind = config['pb_kind']
     checkpoint_dir = config['checkpoint']
     tensorboard_dir= config['tensorboard']
     learning_rate = config['learning_rate'] # initial learning rate
@@ -233,10 +248,10 @@ def train_model(data):
                                 print('\nTrain (epoch {}/{}, file {}/{}) [{}/{} {:0.2f}%]\t Loss: {:0.5f}\t'.format(
                                         epoch+1, num_epochs, num_files, num_tot_files, num_pics_analyzed, num_pictures, 100*num_pics_analyzed/num_pictures, results[2]))
                                 # Prints the confusion matrix
-                                if(model_name in {'LSTM', 'VGG_16', 'LRCN'}):
-                                    print('Confusion matrix: \n{}\n'.format(metrics[3]))  
+                                if(pb_kind == 'classification'):
+                                    print('\nConfusion matrix: \n{}'.format(metrics[3]))  
                                 # Prints the reconstruction 
-                                elif(model_name in {'VGG_16_encoder_decoder'} and display_plots):
+                                elif(pb_kind == 'encoder' and display_plots):
                                     true_pic = results[3][0]
                                     rec_pic = results[4][0]
                                     num_segs = len(config['segs'])
@@ -250,6 +265,9 @@ def train_model(data):
                                         plt.imshow(rec_pic[:,:,k], cmap='gray')
                                         plt.title('Reconstructed '+config['segs'][k])
                                     plt.show()
+                                # Prints the true and predicted value(s)
+                                elif(pb_kind == 'regression'):
+                                    print('\nMean Squared Error: {:.3f}'.format(metrics[0]))
                         except tf.errors.OutOfRangeError:                            
                             end_of_data = True
                     
@@ -274,6 +292,7 @@ def test_model(data, test_on_training = False, save_features = False):
     config = utils.config[data]
     checkpoint_dir = config['checkpoint']
     model_name = config['model']
+    pb_kind = config['pb_kind']
     display_plots = config['display']
     print('Initializing testing graph.')
     G, data_generator, init_ops, ops, metrics_ops, saver, _ = create_TF_graph(data, training=False)
@@ -321,7 +340,7 @@ def test_model(data, test_on_training = False, save_features = False):
                             
                         # Prints the reconstruction 
                         if(step % 3 == 0 and 
-                           model_name in {'VGG_16_encoder_decoder'} and 
+                           pb_kind == 'encoder' and 
                            display_plots):
                             true_pic = results[1][0]
                             rec_pic = results[2][0]
@@ -352,20 +371,22 @@ def test_model(data, test_on_training = False, save_features = False):
                 mem = psutil.virtual_memory()
                 print('Memory info: {0}% used, {1:.2f} GB available, {2:.2f}% active'.format(mem.percent, mem.available/(1024**3), 100*mem.active/mem.total))
                     # Prints the confusion matrix
-                if(model_name in {'LSTM', 'VGG_16', 'LRCN'}):
-                    print('Confusion matrix: {}\n'.format(metrics[3]))  
+                if(pb_kind == 'classification'):
+                    print('\nConfusion matrix: \n{}'.format(metrics[3]))  
                     
                     
                 print('-----\nBATCH {} -----\n'.format(batch_it))
                 print('Current counter: {}\n'.format(global_counter))
-                if(model_name in {'LSTM', 'VGG_16', 'LRCN'}):
+                if(pb_kind == 'classification'):
                     print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}'.
                       format(metrics[0], metrics[1], metrics[2], metrics[4]))
-                elif(model_name in {'VGG_16_encoder_decoder'}):
-                    print('Loss : {}'.format(results[0]))
+                elif(pb_kind == 'regression'):
+                    print('MSE: {:.5f}'.format(metrics[0]))
+                elif(pb_kind == 'encoder'):
+                    print('Loss: {}'.format(results[0]))
                 
                 # Finally, saves the confusion matrix, if needed.
-                if(model_name in {'LSTM', 'VGG_16', 'LRCN'}):
+                if(pb_kind == 'classification'):
                     if(test_on_training):
                         np.save(checkpoint_dir+'/training_confusion_matrix', metrics[3])
                     else:
@@ -380,6 +401,7 @@ if __name__ == '__main__':
     parser.add_argument("--testing", help="Set the mode (training or testing mode).", default=False, action='store_true')
     parser.add_argument("--save_features", help="If this option is enabled, it saves the output features from the training or testing set.", default=False, action='store_true')
     parser.add_argument("--test_on_training", help="If this option and testing mode enabled, it tests the model on the training data set", default=False, action='store_true')
+    parser.add_argument("--pb_kind", type=str, help="Set the kind of problem we want to solve", choices=["classification", "regression", "encoder"])
     parser.add_argument("--data_dims", nargs="+", help="Set the dimensions of feature ([H, W, C] for pictures) in the data set. None values accepted.")
     parser.add_argument("--batch_memsize", type=int, help="Set the memory size of each batch loaded in memory. (in MB)")
     parser.add_argument("-m", "--model", type=str, help="Set the neural network model used.", choices=["VGG_16", "LSTM", "VGG_16_encoder_decoder", "LRCN"])
