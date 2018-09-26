@@ -474,8 +474,8 @@ class Model:
                 self.vector_summary(self.accuracy_per_class, 'Accuracy_Per_Class')
             
             elif(self.pb_kind == 'regression'):
-                self.loss = tf.losses.mean_squared_error(self.output, tf.squeeze(labels))
-                self.MSE, self.MSE_up = tf.metrics.mean_squared_error(tf.squeeze(labels), self.output, name="MSE")
+                self.loss = tf.sqrt(tf.losses.mean_squared_error(labels, self.output))
+                self.MSE, self.MSE_up = tf.metrics.mean_squared_error(labels, self.output, name="MSE")
                 tf.summary.scalar('Loss', self.loss)
                 
             else:

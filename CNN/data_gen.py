@@ -72,6 +72,7 @@ class Data_Gen:
             self.input_features_dir = config['input_features_dir']
             self.output_features_dir = config['output_features_dir']
             self.resize_method = config['resize_method']
+            self.rescaling_factor = config['rescaling_factor']
             self.time_step = config['time_step']
             self.output_features = {}
             self.output_labels = {}
@@ -267,7 +268,7 @@ class Data_Gen:
                 print('Number of classes > 2 case : not yet implemented')
                 raise
         elif(self.pb_kind == 'regression'):
-            flare_level = {'A': 1e-4, 'B': 1e-3, 'C': 1e-2, 'M': 1e-1, 'X': 1}
+            flare_level = {'A': 1e-2, 'B': 1e-1, 'C': 1e0, 'M': 1e1, 'X': 1e2}
             return flare_level[flare_class[0]] * float(flare_class[1:])
         else:
             print('Illegal problem for assigning a label: {}'.format(self.pb_kind))
@@ -284,14 +285,15 @@ class Data_Gen:
             raise RuntimeError('The first frame of a video has the following invalid dimension: {}'.format(video[0].shape))
         if(len(self.data_dims) != 4):
             raise RuntimeError('Wrong number of dimensions for the model {}: got {}'.format(self.model_name, self.data_dims))
-        if(None in self.data_dims[1:]):
+        if(None in self.data_dims[1:]): 
             H = video[0].shape[0]
             W = video[0].shape[1]
             C = video[0].shape[2]
         else:
             H, W, C = self.data_dims[1:]
-            
-        resized_vid = np.zeros((n, H, W, C), dtype=np.float32)
+        
+        output_shape = (int(np.round(H*self.rescaling_factor)), int(np.round(W*self.rescaling_factor)), C)
+        resized_vid = np.zeros((n,) + output_shape , dtype=np.float32)
         # Set the order of the interpolation
         if(self.resize_method == 'NONE'):
             o = 1
@@ -303,7 +305,7 @@ class Data_Gen:
             raise RuntimeError('Unknown resized method: {}'.format(self.resize_method))
             
         for k in range(n):
-            resized_vid[k, :, :, :] = sk.resize(video[k], (H, W, C), order = o, preserve_range=True)
+            resized_vid[k, :, :, :] = sk.resize(video[k], output_shape, order = o, preserve_range=True)
         
         return resized_vid
     
