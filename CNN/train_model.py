@@ -249,7 +249,7 @@ def train_model(data):
                                         epoch+1, num_epochs, num_files, num_tot_files, num_pics_analyzed, num_pictures, 100*num_pics_analyzed/num_pictures, results[2]))
                                 # Prints the confusion matrix
                                 if(pb_kind == 'classification'):
-                                    print('Confusion matrix: {}\n'.format(metrics[3]))  
+                                    print('\nConfusion matrix: \n{}'.format(metrics[3]))  
                                 # Prints the reconstruction 
                                 elif(pb_kind == 'encoder' and display_plots):
                                     true_pic = results[3][0]
@@ -371,7 +371,7 @@ def test_model(data, test_on_training = False, save_features = False):
                 print('Memory info: {0}% used, {1:.2f} GB available, {2:.2f}% active'.format(mem.percent, mem.available/(1024**3), 100*mem.active/mem.total))
                     # Prints the confusion matrix
                 if(pb_kind == 'classification'):
-                    print('Confusion matrix: {}\n'.format(metrics[3]))  
+                    print('\nConfusion matrix: \n{}'.format(metrics[3]))  
                     
                     
                 print('-----\nBATCH {} -----\n'.format(batch_it))

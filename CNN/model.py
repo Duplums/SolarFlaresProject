@@ -194,7 +194,7 @@ class Model:
             self.conv2_2 = tf.layers.conv2d(self.conv2_1, filters=128, kernel_size=(3, 3), 
                                             kernel_initializer=tf.constant_initializer(self.weights_init['conv2_2_W']), 
                                             bias_initializer=tf.constant_initializer(self.weights_init['conv2_2_b']),
-                                            kernel_regulamodel_name in {'LSTM', 'VGG_16', 'LRCN'}rizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
+                                            kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
                                             strides=(1,1), padding='same', activation='relu')
             if(self.batch_norm): self.conv2_2 = tf.layers.batch_normalization(self.conv2_2)
             self.pool2 = tf.layers.max_pooling2d(self.conv2_2, pool_size=(2,2), strides=(2,2), padding='same')
@@ -429,7 +429,7 @@ class Model:
                             pool_outputs.append(tf.reduce_max(tensor_slice, axis=reduced_axis))
             
             spp = tf.concat(pool_outputs, 1)
-            return spp, pool_size, strides, tensor_slice
+            return spp
     
     def update_confusion_matrix(self, labels, pred, name):
         with tf.variable_scope(name):
@@ -474,8 +474,8 @@ class Model:
                 self.vector_summary(self.accuracy_per_class, 'Accuracy_Per_Class')
             
             elif(self.pb_kind == 'regression'):
-                self.loss = tf.losses.mean_squared_error(self.output, labels)
-                self.MSE, self.MSE_up = tf.metrics.mean_squared_error(labels, self.output, name="MSE")
+                self.loss = tf.losses.mean_squared_error(self.output, tf.squeeze(labels))
+                self.MSE, self.MSE_up = tf.metrics.mean_squared_error(tf.squeeze(labels), self.output, name="MSE")
                 tf.summary.scalar('Loss', self.loss)
                 
             else:
