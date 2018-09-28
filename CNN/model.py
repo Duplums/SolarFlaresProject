@@ -53,22 +53,22 @@ class Model:
          assert type(data) is tf.Tensor and len(data.shape) == 5
          with tf.variable_scope(self.name):
             (_, nb_frames, height, width, nb_channels) = data.get_shape().as_list()
-            
+            init = tf.keras.initializers.RandomNormal(mean=0.0, stddev=1e-3)
             ### conv3 - 64
-            self.input_layer = tf.cast(data, dtype=tf.float32)         
-            self.conv1_1 = TimeDistributed(Conv2D(filters=64, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu', input_shape=(height, width, nb_channels)))(self.input_layer)
+            self.input_layer = tf.cast(data, dtype=tf.float32)
+            self.conv1_1 = TimeDistributed(Conv2D(filters=64, kernel_size=(3, 3), kernel_initializer=init, strides=(1,1), padding='same', activation='relu', input_shape=(height, width, nb_channels)))(self.input_layer)
             self.conv1_1 = TimeDistributed(BatchNormalization())(self.conv1_1)
-            self.conv1_2 = TimeDistributed(Conv2D(filters=64, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu'))(self.conv1_1)
+            self.conv1_2 = TimeDistributed(Conv2D(filters=64, kernel_size=(3, 3), kernel_initializer=init, strides=(1,1), padding='same', activation='relu'))(self.conv1_1)
             self.conv1_2 = TimeDistributed(BatchNormalization())(self.conv1_2)
             self.pool1 = TimeDistributed(MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same'))(self.conv1_2)
             ### conv3 - 128
-            self.conv2_1 = TimeDistributed(Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu'))(self.pool1)
+            self.conv2_1 = TimeDistributed(Conv2D(filters=128, kernel_size=(3, 3), kernel_initializer=init, strides=(1,1), padding='same', activation='relu'))(self.pool1)
             self.conv2_1 = TimeDistributed(BatchNormalization())(self.conv2_1)
-            self.conv2_2 = TimeDistributed(Conv2D(filters=128, kernel_size=(3, 3), strides=(1,1), padding='same', activation='relu'))(self.conv2_1)
+            self.conv2_2 = TimeDistributed(Conv2D(filters=128, kernel_size=(3, 3), kernel_initializer=init, strides=(1,1), padding='same', activation='relu'))(self.conv2_1)
             self.conv2_2 = TimeDistributed(BatchNormalization())(self.conv2_2)
             self.pool2 = TimeDistributed(MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same'))(self.conv2_2)
             ### conv3-LSTM - 256
-            self.convLSTM = ConvLSTM2D(filters=256, kernel_size=3, padding='same', activation='tanh', return_sequences=False, return_state=False, dropout=self.dropout_prob)(self.pool2)
+            self.convLSTM = ConvLSTM2D(filters=256, kernel_size=3, kernel_initializer=init, padding='same', activation='tanh', return_sequences=False, return_state=False, dropout=self.dropout_prob)(self.pool2)
             ### spp - 8 [output = 8*8*256 = 16384]
             self.spp = self.spp_layer(self.convLSTM, [8], 'spp', pooling='MAX')
             self.fc1 = Dense(512, activation='relu')(self.spp)
@@ -78,7 +78,7 @@ class Model:
             if(self.pb_kind == 'classification'):
                 self.output = Dense(self.nb_classes)(self.fc1)
             elif(self.pb_kind == 'regression'):
-                self.output = Dense(1)(self.fc1)
+                self.output = tf.squeeze(Dense(1)(self.fc1))
             else:
                 print('Illegal kind of problem for LRCN model: {}'.format(self.pb_kind))
                 

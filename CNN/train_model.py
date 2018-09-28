@@ -131,9 +131,11 @@ def create_TF_graph(data, training):
         elif(pb_kind == 'regression'):
             if(training):
                 ops = [merged, grad_step, _model.loss,
-                       _model.MSE_up]
+                       _model.MSE_up, _model.output, 
+                       input_data[1]]
             else:
-                ops = [_model.loss, _model.MSE_up]
+                ops = [_model.loss, _model.MSE_up,
+                       _model.output, input_data[1]]
 
         # Adds the global iteration counter    
         ops += [update_it_global]
@@ -191,7 +193,7 @@ def train_model(data):
     
     with sess.as_default():
         
-        restore_checkpoint(sess, saver, checkpoint_dir)
+        #restore_checkpoint(sess, saver, checkpoint_dir)
         train_writer = tf.summary.FileWriter(tensorboard_dir, sess.graph)      
         learning_rate = config['learning_rate']
         global_counter = sess.run(G.get_tensor_by_name('global_iterator:0')) 
@@ -225,14 +227,13 @@ def train_model(data):
                     
                     while(not end_of_data):
                         try:
-
                             # Runs the optimization and updates the metrics
                             results = sess.run(ops, feed_dict={G.get_tensor_by_name('learning_rate:0') : learning_rate})
                                                         
                             # Computes the metrics
                             metrics = sess.run(metrics_ops)
 
-                            # Gets the global iteration counter
+                            # Gets the global iteration counter                       
                             num_pics_analyzed += sess.run(G.get_tensor_by_name('global_iterator:0')) - global_counter
                             global_counter = sess.run(G.get_tensor_by_name('global_iterator:0'))
                             step += 1
@@ -267,6 +268,7 @@ def train_model(data):
                                     plt.show()
                                 # Prints the true and predicted value(s)
                                 elif(pb_kind == 'regression'):
+                                    print('Output: {}\t Ground truth: {}'.format(results[-3], results[-2]))
                                     print('\nMean Squared Error: {:.3f}'.format(metrics[0]))
                         except tf.errors.OutOfRangeError:                            
                             end_of_data = True
