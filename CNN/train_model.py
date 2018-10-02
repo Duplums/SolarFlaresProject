@@ -9,15 +9,15 @@ import psutil
 # config: dict containing every info for training mode
 # train_data_gen: load in RAM the data when needed
 
-def restore_checkpoint(session, saver, save_dir):
+def restore_checkpoint(session, restore_, save_dir):
     try:
         print("Trying to restore last checkpoint ...")
-    
+        
         # Use TensorFlow to find the latest checkpoint - if any.
         last_chk_path = tf.train.latest_checkpoint(checkpoint_dir=save_dir)
     
-        # Try and load the data in the checkpoint.
-        saver.restore(session, save_path=last_chk_path)
+        # Loads the data in the checkpoint.
+        restore_.restore(session, save_path=last_chk_path)
     
         # If we get to this point, the checkpoint was successfully loaded.
         print("Restored checkpoint from:", last_chk_path)
@@ -28,7 +28,14 @@ def restore_checkpoint(session, saver, save_dir):
         print("Failed to restore checkpoint.")
         print(traceback.format_exc())
         return False
-        
+
+def scan_checkpoint_for_vars(checkpoint_path, vars_to_check):
+    check_var_list = tf.train.list_variables(checkpoint_path)
+    check_var_list = [x[0] for x in check_var_list]
+    check_var_set = set(check_var_list)
+    vars_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] in check_var_set]
+    vars_not_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] not in check_var_set]
+    return vars_in_checkpoint, vars_not_in_checkpoint
 
 ''' From a config file, this function creates the TF graph according to the model
     defined in 'model.py'. The graph is returned at the end.'''
@@ -159,162 +166,22 @@ def create_TF_graph(data, training):
             init_ops = [tf.local_variables_initializer(), 
                        it_global.initializer,
                        _model.reset_metrics()]
+        
+        # Restores every variable found in the latest checkpoint that matches our current variables
+        last_chk_path = tf.train.latest_checkpoint(checkpoint_dir=config['checkpoint'])
+        v_in_chk, v_not_in_chk = scan_checkpoint_for_vars(last_chk_path,  tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES))
+        
+        if(len(v_not_in_chk) > 0):
+            print('Warning: some variables are not found in the latest checkpoint:')
+            for v in v_not_in_chk:
+                print('\t- {}'.format(v.name))
+            print('Default initialization is used instead.')
+        
+        restore = tf.train.Saver(v_in_chk) # restore only the found variables
+        saver = tf.train.Saver()           # save all the variables
 
-        saver = tf.train.Saver({'VGG_16_encoder_decoder/conv1_1/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/conv1_1/kernel:0'),
-'VGG_16_encoder_decoder/conv1_1/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/conv1_1/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/bn1_1/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/bn1_1/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/bn1_1/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/bn1_1/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/conv1_2/kernel:0'),
-'VGG_16_encoder_decoder/conv2d/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/conv1_2/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_1/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/bn1_2/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_1/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/bn1_2/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_1/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/bn1_2/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_1/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/bn1_2/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_1/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/conv2_1/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_1/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/conv2_1/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_2/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/bn2_1/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_2/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/bn2_1/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_2/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/bn2_1/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_2/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/bn2_1/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_2/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/conv2_2/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_2/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/conv2_2/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_3/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/bn2_2/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_3/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/bn2_2/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_3/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/bn2_2/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_3/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/bn2_2/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_3/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/conv3_1/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_3/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/conv3_1/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_4/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/bn3_1/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_4/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/bn3_1/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_4/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/bn3_1/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_4/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/bn3_1/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_4/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/conv3_2/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_4/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/conv3_2/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_5/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/bn3_2/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_5/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/bn3_2/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_5/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/bn3_2/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_5/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/bn3_2/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_5/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/conv3_3/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_5/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/conv3_3/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_6/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/bn3_3/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_6/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/bn3_3/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_6/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/bn3_3/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_6/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/bn3_3/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_6/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/conv4_1/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_6/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/conv4_1/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_7/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/bn4_1/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_7/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/bn4_1/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_7/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/bn4_1/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_7/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/bn4_1/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_7/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/conv4_2/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_7/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/conv4_2/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_8/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/bn4_2/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_8/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/bn4_2/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_8/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/bn4_2/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_8/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/bn4_2/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_8/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/conv4_3/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_8/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/conv4_3/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_9/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/bn4_3/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_9/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/bn4_3/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_9/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/bn4_3/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_9/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/bn4_3/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_9/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/conv5_1/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_9/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/conv5_1/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_10/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/bn5_1/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_10/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/bn5_1/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_10/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/bn5_1/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_10/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/bn5_1/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_10/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/conv5_2/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_10/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/conv5_2/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_11/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/bn5_2/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_11/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/bn5_2/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_11/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/bn5_2/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_11/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/bn5_2/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_11/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/conv5_3/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_11/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/conv5_3/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_12/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/bn5_3/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_12/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/bn5_3/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_12/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/bn5_3/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_12/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/bn5_3/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_12/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv5_3/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_12/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv5_3/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_13/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn5_3/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_13/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn5_3/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_13/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn5_3/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_13/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn5_3/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_13/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv5_2/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_13/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv5_2/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_14/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn5_2/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_14/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn5_2/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_14/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn5_2/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_14/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn5_2/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_14/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv5_1/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_14/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv5_1/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_15/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn5_1/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_15/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn5_1/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_15/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn5_1/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_15/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn5_1/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_15/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv4_3/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_15/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv4_3/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_16/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn4_3/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_16/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn4_3/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_16/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn4_3/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_16/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn4_3/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_16/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv4_2/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_16/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv4_2/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_17/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn4_2/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_17/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn4_2/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_17/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn4_2/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_17/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn4_2/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_17/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv4_1/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_17/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv4_1/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_18/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn4_1/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_18/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn4_1/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_18/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn4_1/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_18/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn4_1/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_18/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv3_3/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_18/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv3_3/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_19/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn3_3/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_19/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn3_3/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_19/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn3_3/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_19/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn3_3/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_19/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv3_2/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_19/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv3_2/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_20/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn3_2/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_20/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn3_2/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_20/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn3_2/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_20/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn3_2/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_20/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv3_1/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_20/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv3_1/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_21/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn3_1/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_21/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn3_1/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_21/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn3_1/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_21/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn3_1/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_21/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv2_2/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_21/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv2_2/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_22/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn2_2/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_22/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn2_2/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_22/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn2_2/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_22/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn2_2/moving_variance:0'),
-'VGG_16_encoder_decoder/conv2d_22/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv2_1/kernel:0'),
-'VGG_16_encoder_decoder/conv2d_22/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv2_1/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_23/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn2_1/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_23/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn2_1/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_23/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn2_1/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_23/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn2_1/moving_variance:0'),
-'VGG_16_encoder_decoder/unconv1_2/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv1_2/kernel:0'),
-'VGG_16_encoder_decoder/unconv1_2/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv1_2/bias:0'),
-'VGG_16_encoder_decoder/batch_normalization_24/gamma': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn1_2/gamma:0'),
-'VGG_16_encoder_decoder/batch_normalization_24/beta': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn1_2/beta:0'),
-'VGG_16_encoder_decoder/batch_normalization_24/moving_mean': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn1_2/moving_mean:0'),
-'VGG_16_encoder_decoder/batch_normalization_24/moving_variance': G.get_tensor_by_name('VGG_16_encoder_decoder/ubn1_2/moving_variance:0'),
-'VGG_16_encoder_decoder/unconv1_1/kernel': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv1_1/kernel:0'),
-'VGG_16_encoder_decoder/unconv1_1/bias': G.get_tensor_by_name('VGG_16_encoder_decoder/unconv1_1/bias:0'),
-'global_iterator': G.get_tensor_by_name('global_iterator:0') })
+    return (G, data_generator, init_ops, ops, metrics_ops, saver, restore, _model)
 
-    return (G, data_generator, init_ops, ops, metrics_ops, saver, _model)
 
 def train_model(data):
     
@@ -331,8 +198,7 @@ def train_model(data):
     model_name = config['model']
     
     print('Initializing training graph.')
-    G, data_generator, init_ops, ops, metrics_ops, saver, model = create_TF_graph(data, training=True)
-    
+    G, data_generator, init_ops, ops, metrics_ops, saver, restore, model = create_TF_graph(data, training=True)
     sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True,
                                                      intra_op_parallelism_threads=config['num_threads'],
                                                      inter_op_parallelism_threads=config['num_threads']))
@@ -345,8 +211,7 @@ def train_model(data):
     
     with sess.as_default():
         
-        restore_checkpoint(sess, saver, checkpoint_dir)
-        
+        restore_checkpoint(sess, restore, checkpoint_dir)
         train_writer = tf.summary.FileWriter(tensorboard_dir, sess.graph)      
         learning_rate = config['learning_rate']
         global_counter = sess.run(G.get_tensor_by_name('global_iterator:0')) 
@@ -450,12 +315,14 @@ def test_model(data, test_on_training = False, save_features = False):
     pb_kind = config['pb_kind']
     display_plots = config['display']
     print('Initializing testing graph.')
-    G, data_generator, init_ops, ops, metrics_ops, saver, _ = create_TF_graph(data, training=False)
+    G, data_generator, init_ops, ops, metrics_ops, _, restore, _ = create_TF_graph(data, training=False)
     
     sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True))
     tf.train.start_queue_runners(sess=sess)
     with sess.as_default():
-        if(restore_checkpoint(sess, saver, checkpoint_dir)):
+        if(restore_checkpoint(sess, restore, checkpoint_dir)):
+            
+            
             # Initializes all the metrics.
             sess.run(init_ops) 
             

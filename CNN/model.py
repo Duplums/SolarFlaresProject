@@ -189,14 +189,14 @@ class Model:
                                             kernel_initializer=tf.constant_initializer(self.weights_init['conv2_1_W']), 
                                             bias_initializer=tf.constant_initializer(self.weights_init['conv2_1_b']), 
                                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
-                                            strides=(1,1), padding='same', activation='relu', name='conv2_1', trainable=False)
-            if(self.batch_norm): self.conv2_1 = tf.layers.batch_normalization(self.conv2_1, training=self.training_mode, name='bn2_1', trainable=False)
+                                            strides=(1,1), padding='same', activation='relu', name='conv2_1')
+            if(self.batch_norm): self.conv2_1 = tf.layers.batch_normalization(self.conv2_1, training=self.training_mode, name='bn2_1')
             self.conv2_2 = tf.layers.conv2d(self.conv2_1, filters=128, kernel_size=(3, 3), 
                                             kernel_initializer=tf.constant_initializer(self.weights_init['conv2_2_W']), 
                                             bias_initializer=tf.constant_initializer(self.weights_init['conv2_2_b']),
                                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
-                                            strides=(1,1), padding='same', activation='relu', name='conv2_2', trainable=False)
-            if(self.batch_norm): self.conv2_2 = tf.layers.batch_normalization(self.conv2_2, training=self.training_mode, name='bn2_2', trainable=False)
+                                            strides=(1,1), padding='same', activation='relu', name='conv2_2')
+            if(self.batch_norm): self.conv2_2 = tf.layers.batch_normalization(self.conv2_2, training=self.training_mode, name='bn2_2')
             self.pool2 = tf.layers.max_pooling2d(self.conv2_2, pool_size=(2,2), strides=(2,2), padding='same')
             ### conv3 - 256
             self.conv3_1 = tf.layers.conv2d(self.pool2, filters=256, kernel_size=(3, 3), 
@@ -281,7 +281,7 @@ class Model:
                                               strides=(1,1), padding='same', activation='relu', name='unconv5_1')
             if(self.batch_norm): self.unconv5_1 = tf.layers.batch_normalization(self.unconv5_1, training=self.training_mode, name='ubn5_1')
             ### Skip connection 0
-            self.unconv5_1 = tf.add(self.unconv5_1, self.conv5_1)
+            #self.unconv5_1 = tf.add(self.unconv5_1, self.conv5_1)
             ### unconv3 - 512
             self.unpool4 = tf.image.resize_images(self.unconv5_1, tf.shape(self.conv4_1)[1:3], align_corners=True)
             self.unconv4_3 = tf.layers.conv2d(self.unpool4, filters=512, kernel_size=(3, 3), 
@@ -332,14 +332,14 @@ class Model:
                                               kernel_initializer=tf.constant_initializer(self.weights_init['conv2_2_W']), 
                                               bias_initializer=tf.constant_initializer(self.weights_init['conv2_2_b']),
                                               kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
-                                              strides=(1,1), padding='same', activation='relu', name='unconv2_2', trainable=False)
-            if(self.batch_norm): self.unconv2_2 = tf.layers.batch_normalization(self.unconv2_2, training=self.training_mode, name='ubn2_2', trainable=False)
-            self.unconv2_1 = tf.layers.conv2d(self.unconv2_2, filters=128, kernel_size=(3, 3), 
+                                              strides=(1,1), padding='same', activation='relu', name='unconv2_2')
+            if(self.batch_norm): self.unconv2_2 = tf.layers.batch_normalization(self.unconv2_2, training=self.training_mode, name='ubn2_2')
+            self.unconv2_1 = tf.layers.conv2d(self.unconv2_2, filters=128, kernel_size=(3, 3),
                                               kernel_initializer=tf.constant_initializer(self.weights_init['conv2_1_W']), 
                                               bias_initializer=tf.constant_initializer(self.weights_init['conv2_1_b']),
                                               kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
                                               strides=(1,1), padding='same', activation='relu', name='unconv2_1')    
-            if(self.batch_norm): self.unconv2_1 = tf.layers.batch_normalization(self.unconv2_1, training=self.training_mode, name='ubn2_1', trainable=False)
+            if(self.batch_norm): self.unconv2_1 = tf.layers.batch_normalization(self.unconv2_1, training=self.training_mode, name='ubn2_1')
             ### Skip connection 3
             #self.unconv2_1 = tf.add(self.unconv2_1, self.conv2_1)
             ### unconv3 - 64
