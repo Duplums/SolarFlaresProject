@@ -76,7 +76,6 @@ class Data_Gen:
             self.time_step = config['time_step']
             self.output_features = {}
             self.output_labels = {}
-            self._output_features_part_counter = 0
             if(training):
                 self.subsampling = config['subsampling']
 
@@ -283,14 +282,12 @@ class Data_Gen:
             return np.array([])
         if(len(video[0].shape) != 3):
             raise RuntimeError('The first frame of a video has the following invalid dimension: {}'.format(video[0].shape))
-        if(len(self.data_dims) != 4):
-            raise RuntimeError('Wrong number of dimensions for the model {}: got {}'.format(self.model_name, self.data_dims))
         if(None in self.data_dims[1:]): 
             H = video[0].shape[0]
             W = video[0].shape[1]
             C = video[0].shape[2]
         else:
-            H, W, C = self.data_dims[1:]
+            H, W, C = self.data_dims[1:4]
         
         output_shape = (int(np.round(H*self.rescaling_factor)), int(np.round(W*self.rescaling_factor)), C)
         resized_vid = np.zeros((n,) + output_shape , dtype=np.float32)
@@ -310,16 +307,20 @@ class Data_Gen:
         return resized_vid
     
     
-    # Extract the frame numero from the frame key in each video of a SF.
-    # We assume that each frame_key has the following format: 'frame{i}'
-    # where {i} = the frame numero 
+    # It orders a list of strings, assuming it has one of the following format:
+    #   * frame{} (ex: 'frame0', 'frame98', ...)
+    #   * {} (ex: '1', '100', ...)
     @staticmethod
-    def _to_frame_num(frame_key):
-        nb = re.search(r'[1-9]?[0-9]?[0-9]', frame_key)
-        if(nb is None):
-            print('Impossible to parse the frame key {}'.format(frame_key))
-            raise
-        return int(nb.group())
+    def _ordered_frames(list_frames):
+        if all([re.match('frame[0-9]+', f) for f in list_frames]):
+            return sorted(list_frames, key=lambda f: int(f[5:]))
+        elif(all([re.match('[0-9]+', f) for f in list_frames])):
+            return sorted(list_frames, key=lambda f: int(f))
+        else:
+            raise RuntimeError('Unknown frame format: {}'.format(list_frames))
+        
+        
+        
     
     # check 'NaN' in a frame that can have one or multiple channels. Returns
     # a clean frame. INPUT: np array with shape (h, w, c)
@@ -389,11 +390,13 @@ class Data_Gen:
     # OUTPUT : 2 lists that contains pictures of possibly various sizes and 
     # the labels associated. NOTE: if vid_infos is true, another list containing
     # video information relatively to the picture is added. Each meta data is 
-    # formatted as : '{name_file}|{name_vid}|{active region size}|{frame_nb}'
-    # !! CAREFUL: we assume that 'SIZE_ACR' is an attribute associated to EVERY frame
-    # in the data base !! 
-    def _extract_data(self, files_to_extract, saving = False, retrieve = False, 
-                      vid_infos = False, verbose = False):
+    # formatted as : '{label}|{name_file}|{name_vid}|{frame_nb}'
+    def _extract_data(self, files_to_extract, 
+                      saving = False, 
+                      retrieve = False, 
+                      vid_infos = False, 
+                      resize_pic_in_same_vid = False,
+                      verbose = False):
         features = []
         labels = []
         metadata = []
@@ -404,7 +407,7 @@ class Data_Gen:
                     with h5.File(file_path, 'r') as db:
                         if(verbose):
                             print('Beginning to extract data from {}'.format(os.path.basename(file_path)))
-                        if(self.database_name == 'SF'):
+                        if(self.database_name == 'SF' or self.database_name == 'SF_encoded'):
                             curr_features = None
                             curr_labels = None
                             curr_meta = None
@@ -445,14 +448,18 @@ class Data_Gen:
                                 curr_meta= []
                                 for vid_key in db.keys():
                                     frame_counter = 0
-                                    video = [] # useful only for the LRCN model (one feature is a video)
+                                    video = [] 
                                     label = self._label(db[vid_key].attrs['event_class'])
-                                    meta = os.path.basename(file_path) + '|'+vid_key+'|'
-                                    for frame_key in db[vid_key].keys():
+                                    meta = '{}|{}|{}|'.format(db[vid_key].attrs['event_class'], os.path.basename(file_path), vid_key)
+                                        
+                                    for frame_key in self._ordered_frames(list(db[vid_key].keys())):
                                         # subsample the video
                                         if(frame_counter % self.subsampling == 0):
                                             if('channels' in db[vid_key][frame_key].keys()):
-                                                frame_tensor = Data_Gen._extract_frame(db[vid_key][frame_key]['channels'], db[vid_key][frame_key].attrs['SEGS'], self.segs, verbose)
+                                                if(self.database_name == 'SF'):
+                                                    frame_tensor = Data_Gen._extract_frame(db[vid_key][frame_key]['channels'], db[vid_key][frame_key].attrs['SEGS'], self.segs, verbose)
+                                                else:
+                                                    frame_tensor = np.array(db[vid_key][frame_key]['channels'])
                                                 if(frame_tensor is None):
                                                     if(len(self.segs) == 0):
                                                         print('Warning: no segments to extract.')
@@ -465,16 +472,23 @@ class Data_Gen:
                                                 if(self.model_name == 'LRCN'):
                                                     video += [frame_tensor]
                                                 else:
-                                                    curr_features += [frame_tensor]
+                                                    if(not resize_pic_in_same_vid):
+                                                        curr_features += [frame_tensor]
+                                                    else:
+                                                        video += [frame_tensor]
                                                     curr_labels += [label]
-                                                    curr_meta += [meta+str(db[vid_key][frame_key].attrs['SIZE_ACR'])+'|'+str(self._to_frame_num(frame_key))]
+                                                    curr_meta += [meta+frame_key]
                                                 
                                                 memory_used += frame_tensor.nbytes
-
+                                    # 1 sample = 1 video
                                     if(self.model_name == 'LRCN' and len(video) > 0):
                                         curr_features += [self._resize_video(video)]
                                         curr_labels += [label]
                                         curr_meta += [meta]
+                                    # expands the video
+                                    elif(resize_pic_in_same_vid and len(video) > 0):
+                                        curr_features += self._resize_video(video).tolist()
+                                    
                                         
                                 print('Data extracted from {}.'.format(os.path.basename(file_path)))
                                 if(saving):
@@ -500,18 +514,10 @@ class Data_Gen:
                                 curr_features = np.array(db['features']).tolist()
                                 curr_labels = np.array(db['labels']).tolist()
                                 memory_used += np.array(db['features']).nbytes + np.array(db['labels']).nbytes
-                                
+                            
                             elif(self.database_name == 'SF_LSTM'):
-                                curr_features = []
-                                curr_labels = []
-                                for f_key in db['features'].keys():
-                                    if(np.array(db['features'][f_key]).shape[0] > 20):
-                                        curr_features += [np.array(db['features'][f_key])[::-1,:][-25:,:]] # // TO BE CHANGED //
-                                        curr_labels += [np.array(db['labels'][f_key])]
-                                        memory_used += np.array(db['features'][f_key])[:25,:].nbytes
-                                        memory_used += np.array(db['labels'][f_key]).nbytes
-                                    if(vid_infos):
-                                        metadata += list(db['features'].keys())
+                                print('Not implemented yet !')
+                                raise
                             
                             if(len(curr_features) == len(curr_labels)):
                                 features += curr_features
@@ -542,6 +548,7 @@ class Data_Gen:
                    retrieve_data = False,
                    take_random_files = False,
                    get_metadata = False,
+                   resize_pic_in_same_vid = False,
                    rm_paths_to_file = True,
                    verbose = False):
         
@@ -574,7 +581,12 @@ class Data_Gen:
                 print('\t - {} => {}MB'.format(os.path.basename(f), math.ceil(os.path.getsize(f)/(1024.0*1024))))
         
         # Loads the data in memory
-        end_of_data = self._extract_data(files_in_batch, save_extracted_data, retrieve_data, vid_infos = get_metadata, verbose=verbose)
+        end_of_data = self._extract_data(files_in_batch, 
+                                         save_extracted_data, 
+                                         retrieve_data, 
+                                         vid_infos = get_metadata, 
+                                         resize_pic_in_same_vid = resize_pic_in_same_vid,
+                                         verbose=verbose)
         if(len(self.features) > 0):
             print('{} elements extracted.\n'.format(len(self.features)))
         return(end_of_data)
@@ -588,48 +600,51 @@ class Data_Gen:
     def get_num_features(self):
         return len(self.features)
     
-    # Adds the features extracted by the Neural Network to the 'output_features' list.
-    # The active region size is added manually at the beginning of every feature.
-    def add_output_features(self, features, labels, metadata):
-        assert len(features) == len(labels) == len(metadata)
+    # Adds the features extracted by the Neural Network to the 'output_features' dictionnary.
+    def add_output_features(self, features, metadata):
+        assert len(features) == len(metadata)
         
         for k in range(len(metadata)):
             meta = metadata[k].decode()
+            # meta == 'label|file|video|frame_nb'
             if(re.match('.+\|.+\|.+\|.+', meta)):
                 meta_list = re.split(r'\|', meta)
                 if(len(meta_list) == 4):
-                    feature_key = meta_list[0]+'_'+meta_list[1]
-                    frame_nb = int(meta_list[3])
-                    size_acr = float(meta_list[2])
-                    if(feature_key in self.output_features):
-                        if(frame_nb not in self.output_features[feature_key]):
-                            self.output_features[feature_key].update({frame_nb: np.concatenate((features[k], [size_acr]))})
+                    label = meta_list[0]
+                    file = meta_list[1]
+                    video = meta_list[2]
+                    frame_nb = meta_list[3]
+                    if(file in self.output_features and video in self.output_features[file]):
+                        if(frame_nb not in self.output_features[file][video]):
+                            self.output_features[file][video].update({frame_nb: features[k]})
                         else:
-                            print('Warning: frame {} already exists. Ignored'.format(frame_nb))
+                            print('Warning: frame {} already exists in file {}, video {}. Ignored'.format(frame_nb, file, video))
+                    elif(file in self.output_features):
+                        self.output_features[file].update({video: {frame_nb: features[k]}})
+                        self.output_labels[file].update({video: label})
                     else:
-                        self.output_features[feature_key] = {frame_nb: np.concatenate((features[k], [size_acr]))}
-                        self.output_labels[feature_key] = labels[k]
+                        self.output_features.update({file: {video: {frame_nb: features[k]}}})
+                        self.output_labels.update({file: {video: label}})
                 else:
                     print('Impossible to parse the metadata {}.Feature ignored'.format(meta))
             else:
                 print('Unknown format for metadata {}. Feature ignored.'.format(meta))
     
     def dump_output_features(self):
-        features_path = os.path.join(self.output_features_dir, 'output_features_part_{}.hdf5'.format(self._output_features_part_counter))
-        with h5.File(features_path, 'w') as f:
-            f.create_group('features')
-            f.create_group('labels')
-            for f_key in self.output_features:
-                # Sort the dictionnary according to frame name
-                self.output_features[f_key] = OrderedDict(sorted(self.output_features[f_key].items(), key=lambda t: t[0]))
-                # Create a np array for the video (size nb_frames x n_features) and store it
-                f['features'].create_dataset(f_key, data=np.array(list(self.output_features[f_key].values()), dtype=np.float32))
-                f['labels'].create_dataset(f_key, data=self.output_labels[f_key], dtype=np.int32)
+        for f_key, f_val in self.output_features.items():
+            file_path = os.path.join(self.output_features_dir, f_key)
+            with h5.File(file_path, 'w') as f:
+                for vid_key, vid_val in f_val.items():
+                    f.create_group(vid_key)
+                    for frame_key, frame_val in vid_val.items():
+                        f[vid_key].create_group(frame_key)
+                        f[vid_key][frame_key].create_dataset('channels', data=np.array(frame_val, dtype=np.float32))
+                    f[vid_key].attrs['event_class'] = self.output_labels[f_key][vid_key]
+            print('File {} saved.'.format(f_key))
         
         # Clears the dictionnaries and increments the part counter
         self.output_features.clear()
         self.output_labels.clear()
-        self._output_features_part_counter += 1
 
      # Used as input for the TensorFlow pipeline
     @staticmethod

@@ -63,7 +63,7 @@ def create_TF_graph(data, training):
             input_data, input_seq_length = data_generator.get_next_batch()
         else:
             input_data = data_generator.get_next_batch()        
-        
+
         it_global = tf.Variable(tf.constant(0, shape=[], dtype=tf.int32), trainable=False, name='global_iterator')
         update_it_global = tf.assign_add(it_global, tf.shape(input_data[0])[0]) 
         if(model_name == 'VGG_16'):
@@ -129,15 +129,23 @@ def create_TF_graph(data, training):
         
         elif(pb_kind == 'encoder'):
             if(training):
-                ops = [merged, grad_step, _model.loss,
-                       _model.input_layer, _model.output]
+                ops = [merged, 
+                       grad_step, 
+                       _model.loss,
+                       _model.input_layer, 
+                       _model.output]
             else:
                 ops = [_model.loss, 
-                       _model.input_layer, _model.output]
+                       _model.input_layer, 
+                       _model.output,
+                       input_data,
+                       _model.pool5]
         
         elif(pb_kind == 'regression'):
             if(training):
-                ops = [merged, grad_step, _model.loss,
+                ops = [merged, 
+                       grad_step, 
+                       _model.loss,
                        _model.MSE_up, _model.output, 
                        input_data[1]]
             else:
@@ -317,11 +325,11 @@ def test_model(data, test_on_training = False, save_features = False):
     print('Initializing testing graph.')
     G, data_generator, init_ops, ops, metrics_ops, _, restore, _ = create_TF_graph(data, training=False)
     
-    sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True))
-    tf.train.start_queue_runners(sess=sess)
+    sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True,
+                                                     intra_op_parallelism_threads=config['num_threads'],
+                                                     inter_op_parallelism_threads=config['num_threads']))
     with sess.as_default():
         if(restore_checkpoint(sess, restore, checkpoint_dir)):
-            
             
             # Initializes all the metrics.
             sess.run(init_ops) 
@@ -335,6 +343,7 @@ def test_model(data, test_on_training = False, save_features = False):
                                                                 retrieve_data=False,
                                                                 take_random_files = False,
                                                                 get_metadata=True,
+                                                                resize_pic_in_same_vid=True,
                                                                 verbose=True)
                     
                 # Initializes the iterator on the current batch 
@@ -349,19 +358,17 @@ def test_model(data, test_on_training = False, save_features = False):
                     try:
                         # Updates the metrics according to the current batch
                         results = sess.run(ops)
-                        
                         # Computes the metrics
                         metrics = sess.run(metrics_ops)
                         
                         # If necessary, save the features extracted in memory
                         if(save_features):
-                            features = results[-1]
-                            labels = results[-2][1]
-                            metadata = results[-2][2]
-                            data_generator.add_output_features(features, labels, metadata)
+                            features = results[-2]
+                            metadata = results[-3][2]
+                            data_generator.add_output_features(features, metadata)
                             
                         # Prints the reconstruction 
-                        if(step % 3 == 0 and 
+                        if(step % 20 == 0 and 
                            pb_kind == 'encoder' and 
                            display_plots):
                             true_pic = results[1][0]
@@ -397,7 +404,7 @@ def test_model(data, test_on_training = False, save_features = False):
                     print('\nConfusion matrix: \n{}'.format(metrics[3]))  
                     
                     
-                print('-----\nBATCH {} -----\n'.format(batch_it))
+                print('\n\t----- BATCH {} -----\n'.format(batch_it))
                 print('Current counter: {}\n'.format(global_counter))
                 if(pb_kind == 'classification'):
                     print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}'.
@@ -413,6 +420,7 @@ def test_model(data, test_on_training = False, save_features = False):
                         np.save(checkpoint_dir+'/training_confusion_matrix', metrics[3])
                     else:
                         np.save(checkpoint_dir+'/testing_confusion_matrix', metrics[3])
+                batch_it += 1
                 
         else:
             print('Impossible to restore the model. Test aborted.')
@@ -453,6 +461,6 @@ if __name__ == '__main__':
                 utils.config[data][key] = val
     tf.reset_default_graph()
     if(args.testing):
-        test_model(data, args.test_on_training, args.save_features)
+        res = test_model(data, args.test_on_training, args.save_features)
     else:
         res = train_model(data)
