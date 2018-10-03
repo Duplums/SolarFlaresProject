@@ -84,7 +84,7 @@ def create_TF_graph(data, training):
         elif(model_name == 'VGG_16_encoder_decoder'):
             _model = model.Model('VGG_16_encoder_decoder', 
                                  pb_kind=pb_kind,
-                                 training_mode=training, 
+                                 training_mode=True,#training, 
                                  batch_norm=config['batch_norm'])
             _model.init_weights(weights_initialization)
             _model.build_vgg16_encoder_decoder(input_data[0])
@@ -210,8 +210,6 @@ def train_model(data):
     sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True,
                                                      intra_op_parallelism_threads=config['num_threads'],
                                                      inter_op_parallelism_threads=config['num_threads']))
-
-    tf.train.start_queue_runners(sess=sess)
     print('Initializing all variables')
     sess.run(init_ops)
     num_tot_files = data_generator.get_num_total_files()
@@ -323,7 +321,7 @@ def test_model(data, test_on_training = False, save_features = False):
     pb_kind = config['pb_kind']
     display_plots = config['display']
     print('Initializing testing graph.')
-    G, data_generator, init_ops, ops, metrics_ops, _, restore, _ = create_TF_graph(data, training=False)
+    G, data_generator, init_ops, ops, metrics_ops, _, restore, model = create_TF_graph(data, training=False)
     
     sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True,
                                                      intra_op_parallelism_threads=config['num_threads'],
@@ -345,7 +343,6 @@ def test_model(data, test_on_training = False, save_features = False):
                                                                 get_metadata=True,
                                                                 resize_pic_in_same_vid=True,
                                                                 verbose=True)
-                    
                 # Initializes the iterator on the current batch 
                 sess.run(data_generator.data_iterator.initializer)
                 if(model_name == 'LSTM'):
@@ -368,7 +365,7 @@ def test_model(data, test_on_training = False, save_features = False):
                             data_generator.add_output_features(features, metadata)
                             
                         # Prints the reconstruction 
-                        if(step % 20 == 0 and 
+                        if(step % 2 == 0 and 
                            pb_kind == 'encoder' and 
                            display_plots):
                             true_pic = results[1][0]
