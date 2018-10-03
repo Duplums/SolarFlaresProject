@@ -39,7 +39,7 @@ def scan_checkpoint_for_vars(checkpoint_path, vars_to_check):
 
 ''' From a config file, this function creates the TF graph according to the model
     defined in 'model.py'. The graph is returned at the end.'''
-def create_TF_graph(data, training):
+def create_TF_graph(data, training, test_on_training=False):
     G = tf.Graph()
     
     config = utils.config[data]
@@ -52,7 +52,7 @@ def create_TF_graph(data, training):
     with G.as_default():
         
         # Input TF pipeline
-        data_generator = data_gen.Data_Gen(data, config, max_pic_size=[3000,3000])
+        data_generator = data_gen.Data_Gen(data, config, training=(training or test_on_training), max_pic_size=[3000,3000])
         data_generator.create_tf_dataset_and_preprocessing(use_metadata = not training)
         
         if(training):
@@ -84,7 +84,7 @@ def create_TF_graph(data, training):
         elif(model_name == 'VGG_16_encoder_decoder'):
             _model = model.Model('VGG_16_encoder_decoder', 
                                  pb_kind=pb_kind,
-                                 training_mode=training, 
+                                 training_mode=True,#training, 
                                  batch_norm=config['batch_norm'])
             _model.init_weights(weights_initialization)
             _model.build_vgg16_encoder_decoder(input_data[0])
@@ -323,7 +323,9 @@ def test_model(data, test_on_training = False, save_features = False):
     pb_kind = config['pb_kind']
     display_plots = config['display']
     print('Initializing testing graph.')
-    G, data_generator, init_ops, ops, metrics_ops, _, restore, _ = create_TF_graph(data, training=False)
+    if(test_on_training):
+        print('Warning: the test will be executed on the training set.')
+    G, data_generator, init_ops, ops, metrics_ops, _, restore, _ = create_TF_graph(data, training=False, test_on_training=test_on_training)
     
     sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True,
                                                      intra_op_parallelism_threads=config['num_threads'],
@@ -341,10 +343,10 @@ def test_model(data, test_on_training = False, save_features = False):
                 # Generates the next batch of data and loads it in memory
                 end_of_batch = data_generator.gen_batch_dataset(save_extracted_data=False, 
                                                                 retrieve_data=False,
-                                                                take_random_files = False,
+                                                                take_random_files=True,
                                                                 get_metadata=True,
-                                                                resize_pic_in_same_vid=True,
-                                                                verbose=True)
+                                                                #resize_pic_in_same_vid=True,
+                                                                verbose=False)
                     
                 # Initializes the iterator on the current batch 
                 sess.run(data_generator.data_iterator.initializer)
@@ -366,7 +368,9 @@ def test_model(data, test_on_training = False, save_features = False):
                             features = results[-2]
                             metadata = results[-3][2]
                             data_generator.add_output_features(features, metadata)
-                            
+                        
+                        if(step % 20 == 0):
+                            print('Loss: {}'.format(results[0]))
                         # Prints the reconstruction 
                         if(step % 20 == 0 and 
                            pb_kind == 'encoder' and 
