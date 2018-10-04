@@ -46,7 +46,7 @@ class Data_Gen:
     pb_kind = None
     
     def __init__(self, data_name, config, training=True, max_pic_size=None, verbose = False):
-        assert data_name in {'SF', 'SF_LSTM', 'MNIST', 'CIFAR-10', 'IMG_NET'}
+        assert data_name in {'SF', 'SF_encoded', 'MNIST', 'CIFAR-10', 'IMG_NET'}
  
         self.features = []
         self.labels = []
@@ -64,7 +64,7 @@ class Data_Gen:
         self.max_pic_size = max_pic_size
         self.subsampling = 1
         
-        if(data_name == 'SF'):
+        if(data_name in {'SF', 'SF_encoded'}):
             assert config['resize_method'] in {'NONE', 'LIN_RESIZING', 'QUAD_RESIZING', 'ZERO_PADDING'}
             assert os.path.isdir(config['input_features_dir'])
             assert os.path.isdir(config['output_features_dir'])
@@ -90,12 +90,6 @@ class Data_Gen:
             print('\t/features[dataset]\n')
             print('\t/labels[dataset]\n')
         
-        if(data_name == 'SF_LSTM'):
-            print('Warning: we assume that each HDF5 file is organized as follows:\n')
-            print('\t/features\n')
-            print('\t\t meta(i) : numpy array [N_FRAMES(i), N_FEATURES(i)] (i in [1,N])\n')
-            print('\t/labels\n')
-            print('\t\t meta(i) : labels(i) (i in [1,N])\n')
         
         # First checks
         self.init_paths_to_file(verbose)
@@ -282,27 +276,38 @@ class Data_Gen:
             return np.array([])
         if(len(video[0].shape) != 3):
             raise RuntimeError('The first frame of a video has the following invalid dimension: {}'.format(video[0].shape))
-        if(None in self.data_dims[1:]): 
-            H = video[0].shape[0]
-            W = video[0].shape[1]
-            C = video[0].shape[2]
+        # Set the output shape expected
+        if(None in self.data_dims[1:]):
+            if(self.resize_method == 'ZERO_PADDING'):
+                (H, W, C) = np.max([pic.shape for pic in video], axis=0)
+            else:
+                (H, W, C) = video[0].shape
         else:
-            H, W, C = self.data_dims[1:4]
-        
+            (H, W, C) = self.data_dims[1:4]
+            
         output_shape = (int(np.round(H*self.rescaling_factor)), int(np.round(W*self.rescaling_factor)), C)
         resized_vid = np.zeros((n,) + output_shape , dtype=np.float32)
-        # Set the order of the interpolation
+        # Set the order of the interpolation if resize_method in {'NONE', 'LIN', 'QUAD'}
         if(self.resize_method == 'NONE'):
             o = 1
         elif(self.resize_method == 'LIN_RESIZING'):
             o = 1 
         elif(self.resize_method == 'QUAD_RESIZING'):           
             o = 2
+        elif(self.resize_method == 'ZERO_PADDING'):
+            o = -1
         else:
             raise RuntimeError('Unknown resized method: {}'.format(self.resize_method))
             
         for k in range(n):
-            resized_vid[k, :, :, :] = sk.resize(video[k], output_shape, order = o, preserve_range=True)
+            if(o == -1):
+                # We are centering the picture and adding constant edge values around
+                (Hi, Wi) = video[k].shape[:2]
+                eps_w = int(np.round((W-Wi)/2)) # marge width
+                eps_h = int(np.round((H-Hi)/2)) # marge height 
+                resized_vid[k, :, :, :] = np.pad(video[k], ((eps_h, H-Hi-eps_h), (eps_w, W-Wi-eps_w), (0, 0)), 'edge')
+            else:
+                resized_vid[k, :, :, :] = sk.resize(video[k], output_shape, order = o, preserve_range=True)
         
         return resized_vid
     
@@ -489,7 +494,6 @@ class Data_Gen:
                                     elif(resize_pic_in_same_vid and len(video) > 0):
                                         curr_features += self._resize_video(video).tolist()
                                     
-                                        
                                 print('Data extracted from {}.'.format(os.path.basename(file_path)))
                                 if(saving):
                                     try:

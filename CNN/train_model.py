@@ -2,11 +2,12 @@ import tensorflow as tf
 import time, os, traceback, argparse
 from datetime import timedelta
 import model, utils, data_gen
+import plotting_tools as pt
 import numpy as np
-import matplotlib.pyplot as plt
 import psutil
 
-# config: dict containing every info for training mode
+# config: dict containing every info for the training/testing and 
+# for the preprocessing.
 # train_data_gen: load in RAM the data when needed
 
 def restore_checkpoint(session, restore_, save_dir):
@@ -47,7 +48,6 @@ def create_TF_graph(data, training, test_on_training=False):
     pb_kind = config['pb_kind']
     nb_classes = config['nb_classes']
     loss_weights = config['loss_weights']
-    weights_initialization = config['weights_initialization']
     
     with G.as_default():
         
@@ -84,9 +84,8 @@ def create_TF_graph(data, training, test_on_training=False):
         elif(model_name == 'VGG_16_encoder_decoder'):
             _model = model.Model('VGG_16_encoder_decoder', 
                                  pb_kind=pb_kind,
-                                 training_mode=True,#training, 
+                                 training_mode=True,#bug here... (do not set training_mode=False for test)
                                  batch_norm=config['batch_norm'])
-            _model.init_weights(weights_initialization)
             _model.build_vgg16_encoder_decoder(input_data[0])
             _model.construct_results()
         elif(model_name == 'LRCN'):
@@ -138,8 +137,9 @@ def create_TF_graph(data, training, test_on_training=False):
                 ops = [_model.loss, 
                        _model.input_layer, 
                        _model.output,
-                       input_data,
-                       _model.pool5]
+                       _model.conv1_1,
+                       _model.conv5_3,
+                       input_data]
         
         elif(pb_kind == 'regression'):
             if(training):
@@ -168,7 +168,7 @@ def create_TF_graph(data, training, test_on_training=False):
             metrics_ops = []
         
         if(training):
-            init_ops = [tf.global_variables_initializer(),# Every weights
+            init_ops = [tf.global_variables_initializer(),# All weights
                        tf.local_variables_initializer()] # For metrics
         else:
             init_ops = [tf.local_variables_initializer(), 
@@ -210,7 +210,6 @@ def train_model(data):
     sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True,
                                                      intra_op_parallelism_threads=config['num_threads'],
                                                      inter_op_parallelism_threads=config['num_threads']))
-
     print('Initializing all variables')
     sess.run(init_ops)
     num_tot_files = data_generator.get_num_total_files()
@@ -276,21 +275,16 @@ def train_model(data):
                                 # Prints the confusion matrix
                                 if(pb_kind == 'classification'):
                                     print('\nConfusion matrix: \n{}'.format(metrics[3]))  
+                               
                                 # Prints the reconstruction 
                                 elif(pb_kind == 'encoder' and display_plots):
-                                    true_pic = results[3][0]
-                                    rec_pic = results[4][0]
-                                    num_segs = len(config['segs'])
-                                    fig = plt.figure(figsize=(num_segs*3, 2*3))
-                                    fig.subplots_adjust(hspace=1.5)
-                                    for k in range(num_segs):
-                                        fig.add_subplot(num_segs, 2, 2*k+1)
-                                        plt.imshow(true_pic[:,:,k], cmap='gray')
-                                        plt.title('True '+config['segs'][k])
-                                        fig.add_subplot(num_segs, 2, 2*k+2)
-                                        plt.imshow(rec_pic[:,:,k], cmap='gray')
-                                        plt.title('Reconstructed '+config['segs'][k])
-                                    plt.show()
+                                    true_pic = results[1][0]
+                                    rec_pic = results[2][0]
+                                    pics = np.concatenate((true_pic, rec_pic), axis=2)
+                                    labels = ['True {}'.format(seg) for seg in config['segs']]
+                                    labels += ['Reconstructed {}'.format(seg) for seg in config['segs']]
+                                    pt.Plotting_Tools.plot_pictures(pics, nrows=2, ncols=len(config['segs']), labels=labels, figsize=(3*len(config['segs']), 4))
+
                                 # Prints the true and predicted value(s)
                                 elif(pb_kind == 'regression'):
                                     print('Output: {}\t Ground truth: {}'.format(results[-3], results[-2]))
@@ -324,7 +318,7 @@ def test_model(data, test_on_training = False, save_features = False):
     print('Initializing testing graph.')
     if(test_on_training):
         print('Warning: the test will be executed on the training set.')
-    G, data_generator, init_ops, ops, metrics_ops, _, restore, _ = create_TF_graph(data, training=False, test_on_training=test_on_training)
+    G, data_generator, init_ops, ops, metrics_ops, _, restore, model = create_TF_graph(data, training=False, test_on_training=test_on_training)
     
     sess = tf.Session(graph=G, config=tf.ConfigProto(allow_soft_placement=True,
                                                      intra_op_parallelism_threads=config['num_threads'],
@@ -344,9 +338,7 @@ def test_model(data, test_on_training = False, save_features = False):
                                                                 retrieve_data=False,
                                                                 take_random_files=True,
                                                                 get_metadata=True,
-                                                                #resize_pic_in_same_vid=True,
                                                                 verbose=False)
-                    
                 # Initializes the iterator on the current batch 
                 sess.run(data_generator.data_iterator.initializer)
                 if(model_name == 'LSTM'):
@@ -359,6 +351,7 @@ def test_model(data, test_on_training = False, save_features = False):
                     try:
                         # Updates the metrics according to the current batch
                         results = sess.run(ops)
+                        
                         # Computes the metrics
                         metrics = sess.run(metrics_ops)
                         
@@ -367,26 +360,27 @@ def test_model(data, test_on_training = False, save_features = False):
                             features = results[-2]
                             metadata = results[-3][2]
                             data_generator.add_output_features(features, metadata)
-                        
+
                         if(step % 20 == 0):
                             print('Loss: {}'.format(results[0]))
-                        # Prints the reconstruction 
-                        if(step % 20 == 0 and 
-                           pb_kind == 'encoder' and 
-                           display_plots):
+                        
+                        if(step % 2 == 0 and pb_kind == 'encoder' and  display_plots):
+                            # Prints the reconstruction 
                             true_pic = results[1][0]
                             rec_pic = results[2][0]
-                            num_segs = len(config['segs'])
-                            fig = plt.figure(figsize=(num_segs*3, 2*3))
-                            fig.subplots_adjust(hspace=1.5)
-                            for k in range(num_segs):
-                                fig.add_subplot(num_segs, 2, 2*k+1)
-                                plt.imshow(true_pic[:,:,k], cmap='gray')
-                                plt.title('True '+config['segs'][k])
-                                fig.add_subplot(num_segs, 2, 2*k+2)
-                                plt.imshow(rec_pic[:,:,k], cmap='gray')
-                                plt.title('Reconstructed '+config['segs'][k])
-                            plt.show()
+                            pics = np.concatenate((true_pic, rec_pic), axis=2)
+                            labels = ['True {}'.format(seg) for seg in config['segs']]
+                            labels += ['Reconstructed {}'.format(seg) for seg in config['segs']]
+                            pt.Plotting_Tools.plot_pictures(pics, nrows=2, ncols=len(config['segs']), labels=labels, figsize=(3*len(config['segs']), 4))
+                            # Prints the picture after the 1st conv (64 filters)
+                            # and the picture after the last conv (512 filters)
+                            first_conv_pic = results[3][0]
+                            last_conv_pic = results[4][0]
+                            labels_first = ['1st filter {}'.format(k) for k in range(8*8)]
+                            labels_last = ['5th filter {}'.format(k) for k in range(16*16)]
+                            pt.Plotting_Tools.plot_pictures(first_conv_pic, nrows=8, ncols=8, labels=labels_first)
+                            pt.Plotting_Tools.plot_pictures(last_conv_pic, nrows=10, ncols=10, labels=labels_last)
+                            
                         step += 1
                     except tf.errors.OutOfRangeError:                            
                         end_of_data = True
@@ -430,7 +424,7 @@ def test_model(data, test_on_training = False, save_features = False):
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("data_type", type=str, help="Set the working data set.", choices=["SF", "SF_LSTM", "MNIST", "CIFAR-10"])
+    parser.add_argument("data_type", type=str, help="Set the working data set.", choices=["SF", "SF_encoded", "MNIST", "CIFAR-10"])
     parser.add_argument("--testing", help="Set the mode (training or testing mode).", default=False, action='store_true')
     parser.add_argument("--save_features", help="If this option is enabled, it saves the output features from the training or testing set.", default=False, action='store_true')
     parser.add_argument("--test_on_training", help="If this option and testing mode enabled, it tests the model on the training data set", default=False, action='store_true')
