@@ -39,18 +39,20 @@ class Model:
          assert type(data) is tf.Tensor and len(data.shape) == 5
          with tf.variable_scope(self.name):
             (_, nb_frames, height, width, nb_channels) = data.get_shape().as_list()
-            init = tf.keras.initializers.RandomNormal(mean=0.0, stddev=1e-3)
+            init = tf.keras.initializers.RandomNormal(mean=0.0, stddev=1e-7)
             self.input_layer = tf.cast(data, dtype=tf.float32)
             ### conv3-LSTM - 256
             self.convLSTM = ConvLSTM2D(filters=512, kernel_size=3, kernel_initializer=init, 
-                                       padding='same', activation='relu', return_sequences=False, 
+                                       padding='same', activation='tanh', return_sequences=False, 
                                        return_state=False, dropout=self.dropout_prob)(self.input_layer)
             ### spp - 8 [output = 8*8*512 = 32768]
             self.spp = self.spp_layer(self.convLSTM, [8], 'spp', pooling='MAX')
             self.fc1 = Dense(512, activation='relu', kernel_initializer=init)(self.spp)
             if(self.training_mode):
                 self.fc1 = Dropout(self.dropout_prob)(self.fc1)
-                
+            self.fc2 = Dense(64, activation='relu', kernel_initializer=init)(self.spp)
+            if(self.training_mode):
+                self.fc2 = Dropout(self.dropout_prob)(self.fc2)
             if(self.pb_kind == 'classification'):
                 self.output = Dense(self.nb_classes, kernel_initializer=init)(self.fc1)
             elif(self.pb_kind == 'regression'):
@@ -451,7 +453,7 @@ class Model:
                 self.vector_summary(self.accuracy_per_class, 'Accuracy_Per_Class')
             
             elif(self.pb_kind == 'regression'):
-                self.loss = tf.sqrt(tf.losses.mean_squared_error(labels, self.output))
+                self.loss = tf.reduce_mean(tf.abs(tf.subtract(labels, self.output)))
                 self.MSE, self.MSE_up = tf.metrics.mean_squared_error(labels, self.output, name="MSE")
                 tf.summary.scalar('Loss', self.loss)
                 

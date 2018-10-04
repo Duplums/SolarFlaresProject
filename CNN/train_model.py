@@ -288,7 +288,7 @@ def train_model(data):
                                 # Prints the true and predicted value(s)
                                 elif(pb_kind == 'regression'):
                                     print('Output: {}\t Ground truth: {}'.format(results[-3], results[-2]))
-                                    print('\nMean Squared Error: {:.3f}'.format(metrics[0]))
+                                    print('Mean Squared Error: {:.3f}'.format(metrics[0]))
                         except tf.errors.OutOfRangeError:                            
                             end_of_data = True
                     
