@@ -31,11 +31,16 @@ def restore_checkpoint(session, restore_, save_dir):
         return False
 
 def scan_checkpoint_for_vars(checkpoint_path, vars_to_check):
-    check_var_list = tf.train.list_variables(checkpoint_path)
-    check_var_list = [x[0] for x in check_var_list]
-    check_var_set = set(check_var_list)
-    vars_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] in check_var_set]
-    vars_not_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] not in check_var_set]
+    try:
+        check_var_list = tf.train.list_variables(checkpoint_path)
+        check_var_list = [x[0] for x in check_var_list]
+        check_var_set = set(check_var_list)
+        vars_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] in check_var_set]
+        vars_not_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] not in check_var_set]
+    except:
+        print('Impossible to read the last checkpoint from {}.'.format(checkpoint_path))
+        vars_in_checkpoint = None
+        vars_not_in_checkpoint = vars_to_check
     return vars_in_checkpoint, vars_not_in_checkpoint
 
 ''' From a config file, this function creates the TF graph according to the model
@@ -396,23 +401,19 @@ def test_model(data, test_on_training = False, save_features = False):
                     # Prints the memory usage
                 mem = psutil.virtual_memory()
                 print('Memory info: {0}% used, {1:.2f} GB available, {2:.2f}% active'.format(mem.percent, mem.available/(1024**3), 100*mem.active/mem.total))
-                    # Prints the confusion matrix
-                if(pb_kind == 'classification'):
-                    print('\nConfusion matrix: \n{}'.format(metrics[3]))  
-                    
-                    
                 print('\n\t----- BATCH {} -----\n'.format(batch_it))
                 print('Current counter: {}\n'.format(global_counter))
                 if(pb_kind == 'classification'):
+                    print('\nConfusion matrix: \n{}'.format(metrics[3]))  
                     print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}'.
-                      format(metrics[0], metrics[1], metrics[2], metrics[4]))
+                          format(metrics[0], metrics[1], metrics[2], metrics[4]))
                 elif(pb_kind == 'regression'):
                     print('MSE: {:.5f}'.format(metrics[0]))
                 elif(pb_kind == 'encoder'):
                     print('Loss: {}'.format(results[0]))
                 
                 # Finally, saves the confusion matrix, if needed.
-                if(pb_kind == 'classification'):
+                if(pb_kind == 'classification' and save_features):
                     if(test_on_training):
                         np.save(checkpoint_dir+'/training_confusion_matrix', metrics[3])
                     else:

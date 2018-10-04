@@ -261,8 +261,8 @@ class Data_Gen:
                 print('Number of classes > 2 case : not yet implemented')
                 raise
         elif(self.pb_kind == 'regression'):
-            flare_level = {'A': 1e-2, 'B': 1e-1, 'C': 1e0, 'M': 1e1, 'X': 1e2}
-            return flare_level[flare_class[0]] * float(flare_class[1:])
+            flare_level = {'A': 1e0, 'B': 1e1, 'C': 1e2, 'M': 1e3, 'X': 1e4}
+            return np.log(flare_level[flare_class[0]] * float(flare_class[1:]))
         else:
             print('Illegal problem for assigning a label: {}'.format(self.pb_kind))
             raise
