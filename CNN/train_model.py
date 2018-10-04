@@ -211,7 +211,6 @@ def train_model(data):
                                                      intra_op_parallelism_threads=config['num_threads'],
                                                      inter_op_parallelism_threads=config['num_threads']))
 
-    tf.train.start_queue_runners(sess=sess)
     print('Initializing all variables')
     sess.run(init_ops)
     num_tot_files = data_generator.get_num_total_files()
