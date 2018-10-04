@@ -6,7 +6,8 @@ import plotting_tools as pt
 import numpy as np
 import psutil
 
-# config: dict containing every info for training mode
+# config: dict containing every info for the training/testing and 
+# for the preprocessing.
 # train_data_gen: load in RAM the data when needed
 
 def restore_checkpoint(session, restore_, save_dir):
@@ -337,7 +338,6 @@ def test_model(data, test_on_training = False, save_features = False):
                                                                 retrieve_data=False,
                                                                 take_random_files=True,
                                                                 get_metadata=True,
-                                                                #resize_pic_in_same_vid=True,
                                                                 verbose=False)
                 # Initializes the iterator on the current batch 
                 sess.run(data_generator.data_iterator.initializer)
