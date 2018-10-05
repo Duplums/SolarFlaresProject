@@ -144,7 +144,7 @@ def create_TF_graph(data, training, test_on_training=False):
                        _model.input_layer, 
                        _model.output,
                        _model.conv1_1,
-                       _model.conv5_3,
+                       _model.pool5,
                        input_data]
         
         elif(pb_kind == 'regression'):
@@ -192,7 +192,7 @@ def create_TF_graph(data, training, test_on_training=False):
             print('Warning: some variables are not found in the latest checkpoint:')
             for v in v_not_in_chk:
                 print('\t- {}'.format(v.name))
-            print('Default initialization is used instead.')
+            print('Default initialization will be used instead.')
         
         restore = tf.train.Saver(v_in_chk) # restore only the found variables
         saver = tf.train.Saver()           # save all the variables
@@ -369,8 +369,8 @@ def test_model(data, test_on_training = False, save_features = False):
                         
                         # If necessary, save the features extracted in memory
                         if(save_features):
-                            features = results[-2]
-                            metadata = results[-3][2]
+                            features = results[-3]
+                            metadata = results[-2][2]
                             data_generator.add_output_features(features, metadata)
 
                         if(step % 20 == 0):
