@@ -31,11 +31,16 @@ def restore_checkpoint(session, restore_, save_dir):
         return False
 
 def scan_checkpoint_for_vars(checkpoint_path, vars_to_check):
-    check_var_list = tf.train.list_variables(checkpoint_path)
-    check_var_list = [x[0] for x in check_var_list]
-    check_var_set = set(check_var_list)
-    vars_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] in check_var_set]
-    vars_not_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] not in check_var_set]
+    try:
+        check_var_list = tf.train.list_variables(checkpoint_path)
+        check_var_list = [x[0] for x in check_var_list]
+        check_var_set = set(check_var_list)
+        vars_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] in check_var_set]
+        vars_not_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] not in check_var_set]
+    except:
+        print('Impossible to read the last checkpoint from {}.'.format(checkpoint_path))
+        vars_in_checkpoint = None
+        vars_not_in_checkpoint = vars_to_check
     return vars_in_checkpoint, vars_not_in_checkpoint
 
 ''' From a config file, this function creates the TF graph according to the model
@@ -139,7 +144,7 @@ def create_TF_graph(data, training, test_on_training=False):
                        _model.input_layer, 
                        _model.output,
                        _model.conv1_1,
-                       _model.conv5_3,
+                       _model.pool5,
                        input_data]
         
         elif(pb_kind == 'regression'):
@@ -149,6 +154,7 @@ def create_TF_graph(data, training, test_on_training=False):
                        _model.loss,
                        _model.MSE_up,
                        _model.confusion_matrix_up,
+                       _model.convLSTM,
                        _model.output, 
                        input_data[1]]
             else:
@@ -187,7 +193,7 @@ def create_TF_graph(data, training, test_on_training=False):
             print('Warning: some variables are not found in the latest checkpoint:')
             for v in v_not_in_chk:
                 print('\t- {}'.format(v.name))
-            print('Default initialization is used instead.')
+            print('Default initialization will be used instead.')
         
         restore = tf.train.Saver(v_in_chk) # restore only the found variables
         saver = tf.train.Saver()           # save all the variables
@@ -283,8 +289,8 @@ def train_model(data):
                                
                                 # Prints the reconstruction 
                                 elif(pb_kind == 'encoder' and display_plots):
-                                    true_pic = results[1][0]
-                                    rec_pic = results[2][0]
+                                    true_pic = results[-3][0]
+                                    rec_pic = results[-2][0]
                                     pics = np.concatenate((true_pic, rec_pic), axis=2)
                                     labels = ['True {}'.format(seg) for seg in config['segs']]
                                     labels += ['Reconstructed {}'.format(seg) for seg in config['segs']]
@@ -292,6 +298,9 @@ def train_model(data):
 
                                 # Prints the true and predicted value(s)
                                 elif(pb_kind == 'regression'):
+                                    if(display_plots):
+                                        pic_lrcn = results[-4][0] # 512 filters
+                                        pt.Plotting_Tools.plot_pictures(pic_lrcn, nrows=2, ncols=2)
                                     print('Output: {}\t Ground truth: {}'.format(results[-3], results[-2]))
                                     print('Mean Squared Error: {:.3f}'.format(metrics[0]))
                                     print('Confusion matrix [threshold {}]:\n{}'.format(config['regression_threshold'], metrics[1]))
@@ -364,8 +373,8 @@ def test_model(data, test_on_training = False, save_features = False):
                         
                         # If necessary, save the features extracted in memory
                         if(save_features):
-                            features = results[-2]
-                            metadata = results[-3][2]
+                            features = results[-3]
+                            metadata = results[-2][2]
                             data_generator.add_output_features(features, metadata)
 
                         if(step % 20 == 0):
@@ -403,7 +412,6 @@ def test_model(data, test_on_training = False, save_features = False):
                     # Prints the memory usage
                 mem = psutil.virtual_memory()
                 print('Memory info: {0}% used, {1:.2f} GB available, {2:.2f}% active'.format(mem.percent, mem.available/(1024**3), 100*mem.active/mem.total))
-                
                 if(metrics is not None):
                     # Prints the confusion matrix
                     if(pb_kind == 'classification'):
@@ -430,7 +438,6 @@ def test_model(data, test_on_training = False, save_features = False):
                     batch_it += 1
                 else:
                     print('No metrics to show. We assume there is no data for the test.')
-                
         else:
             print('Impossible to restore the model. Test aborted.')
     

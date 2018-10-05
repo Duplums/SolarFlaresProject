@@ -41,24 +41,25 @@ class Model:
          assert type(data) is tf.Tensor and len(data.shape) == 5
          with tf.variable_scope(self.name):
             (_, nb_frames, height, width, nb_channels) = data.get_shape().as_list()
-            init = tf.keras.initializers.RandomNormal(mean=0.0, stddev=1e-3)
+            init = tf.keras.initializers.RandomNormal(mean=0.0, stddev=1e-5)
             self.input_layer = tf.cast(data, dtype=tf.float32)
-            ### conv3-LSTM - 256
+            ### conv3-LSTM - 512 
             self.convLSTM = ConvLSTM2D(filters=512, kernel_size=3, kernel_initializer=init, 
                                        padding='same', activation='tanh', return_sequences=False, 
                                        return_state=False, dropout=self.dropout_prob)(self.input_layer)
             ### spp - 8 [output = 8*8*512 = 32768]
-            self.spp = self.spp_layer(self.convLSTM, [8], 'spp', pooling='MAX')
+            self.spp = self.spp_layer(self.convLSTM, [8], 'spp', pooling='TV')
             self.fc1 = Dense(512, activation='relu', kernel_initializer=init)(self.spp)
-            if(self.training_mode):
-                self.fc1 = Dropout(self.dropout_prob)(self.fc1)
-            self.fc2 = Dense(64, activation='relu', kernel_initializer=init)(self.spp)
-            if(self.training_mode):
-                self.fc2 = Dropout(self.dropout_prob)(self.fc2)
+            if(self.training_mode): self.fc1 = Dropout(self.dropout_prob)(self.fc1)
+            self.fc2 = Dense(256, activation='relu', kernel_initializer=init)(self.fc1)
+            if(self.training_mode): self.fc2 = Dropout(self.dropout_prob)(self.fc2)
+            self.fc3 = Dense(64, activation='relu', kernel_initializer=init)(self.fc2)
+            if(self.training_mode): self.fc3 = Dropout(self.dropout_prob)(self.fc3)
+
             if(self.pb_kind == 'classification'):
-                self.output = Dense(self.nb_classes, kernel_initializer=init)(self.fc2)
+               self.output = Dense(self.nb_classes, kernel_initializer=init)(self.fc3)
             elif(self.pb_kind == 'regression'):
-                self.output = tf.squeeze(Dense(1)(self.fc2), axis=1) # [[1.2], [2.3], ...] => [1.2, 2.3, ...]
+                self.output = tf.squeeze(Dense(1)(self.fc3), axis=1) # [[1.2], [2.3], ...] => [1.2, 2.3, ...]
             else:
                 print('Illegal kind of problem for LRCN model: {}'.format(self.pb_kind))
                 
@@ -113,7 +114,7 @@ class Model:
             self.pool5 = MaxPooling2D(pool_size=(2,2), strides=(2,2), padding='same')(self.conv5_3)
             
             ### SPP [4, 2, 1]
-            self.spp = self.spp_layer(self.pool5, [4, 2, 1], 'spp')
+            self.spp = self.spp_layer(self.pool5, [4, 2, 1], 'spp', pooling='TV')
             ### FC-1024
             self.dense1 = Dense(1024, activation='relu')(self.spp)
             if(self.training_mode):
@@ -384,7 +385,7 @@ class Model:
         
     
     @staticmethod
-    def spp_layer(input_, levels=[4, 2, 1], name='spp_layer', pooling='AVG'): # pooling in {'AVG', 'MAX'}
+    def spp_layer(input_, levels=[4, 2, 1], name='spp_layer', pooling='MAX'): # pooling in {'AVG', 'MAX', 'TV'}
         # Input shape can be: b x h x w x c (CNN) or b x nb_frames x h x w x c (LRCN, b = 1 if one video at a time)
         # Returns shape b x N or b x nb_frames x N where N = prod(levels.*levels)*c
         
@@ -406,8 +407,15 @@ class Model:
                             reduced_axis = [2, 3]
                         if(pooling == 'AVG'):
                             pool_outputs.append(tf.reduce_mean(tensor_slice, axis=reduced_axis))
-                        else:
+                        elif(pooling == 'MAX'):
                             pool_outputs.append(tf.reduce_max(tensor_slice, axis=reduced_axis))
+                        elif(pooling == 'TV'):
+                            if(len(input_.get_shape()) == 4):
+                                pool_outputs.append(tf.reduce_sum(tf.abs(tensor_slice[:, 1:, :, :] - tensor_slice[:, :-1, :, :]), axis=[1,2])+
+                                                    tf.reduce_sum(tf.abs(tensor_slice[:, :, 1:, :] - tensor_slice[:, :, :-1, :]), axis=[1,2]))
+                            else:
+                                pool_outputs.append(tf.reduce_sum(tf.abs(tensor_slice[:, :, 1:, :, :] - tensor_slice[:, :, :-1, :, :]), axis=[2,3])+
+                                                    tf.reduce_sum(tf.abs(tensor_slice[:, :, :, 1:, :] - tensor_slice[:, :, :, :-1, :]), axis=[2,3]))
             
             spp = tf.concat(pool_outputs, 1)
             return spp
@@ -474,7 +482,7 @@ class Model:
     # Useful for testing phase
     def reset_metrics(self):
         with tf.variable_scope(self.name):
-            if(self.model_built in {'LSTM', 'VGG_16'}):
+            if(self.pb_kind == 'classification'):
                 reset =  [tf.variables_initializer([self.confusion_matrix])]
             else:
                 reset = []
