@@ -18,6 +18,7 @@ class Model:
                  nb_classes = 2, training_mode = True,
                  batch_norm = True, dropout_prob = 0.4,
                  lambda_reg = 0.1,
+                 regress_threshold = None,
                  loss_weights = [1, 1]):
         
         self.name = name
@@ -28,6 +29,7 @@ class Model:
         self.batch_norm = batch_norm
         self.loss_weights = loss_weights
         self.lambda_reg = lambda_reg
+        self.regress_threshold = regress_threshold
             
             
     #                 GRAPH CONSTRUCTION                        #
@@ -54,7 +56,7 @@ class Model:
             if(self.pb_kind == 'classification'):
                 self.output = Dense(self.nb_classes, kernel_initializer=init)(self.fc2)
             elif(self.pb_kind == 'regression'):
-                self.output = tf.squeeze(Dense(1)(self.fc2))
+                self.output = tf.squeeze(Dense(1)(self.fc1), axis=1) # [[1.2], [2.3], ...] => [1.2, 2.3, ...]
             else:
                 print('Illegal kind of problem for LRCN model: {}'.format(self.pb_kind))
                 
@@ -379,8 +381,8 @@ class Model:
             return self.output
         
     
-    
-    def spp_layer(self, input_, levels=[4, 2, 1], name='spp_layer', pooling='AVG'): # pooling in {'AVG', 'MAX'}
+    @staticmethod
+    def spp_layer(input_, levels=[4, 2, 1], name='spp_layer', pooling='AVG'): # pooling in {'AVG', 'MAX'}
         # Input shape can be: b x h x w x c (CNN) or b x nb_frames x h x w x c (LRCN, b = 1 if one video at a time)
         # Returns shape b x N or b x nb_frames x N where N = prod(levels.*levels)*c
         
@@ -408,10 +410,12 @@ class Model:
             spp = tf.concat(pool_outputs, 1)
             return spp
     
-    def update_confusion_matrix(self, labels, pred, name):
+    def update_confusion_matrix(self, labels, pred, name, nb_classes = None):
+        if(nb_classes is None):
+            nb_classes = self.nb_classes
         with tf.variable_scope(name):
-            confusion_matrix= tf.get_variable('matrix', initializer=tf.zeros(shape=[self.nb_classes, self.nb_classes], dtype=tf.int32), trainable=False)
-            update = tf.assign_add(confusion_matrix, tf.confusion_matrix(labels, pred, self.nb_classes), name='update')
+            confusion_matrix= tf.get_variable('matrix', initializer=tf.zeros(shape=[nb_classes, nb_classes], dtype=tf.int32), trainable=False)
+            update = tf.assign_add(confusion_matrix, tf.confusion_matrix(labels, pred, nb_classes), name='update')
             return confusion_matrix, update
     
     @staticmethod
@@ -453,6 +457,12 @@ class Model:
             elif(self.pb_kind == 'regression'):
                 self.loss = tf.reduce_mean(tf.abs(tf.subtract(labels, self.output)))
                 self.MSE, self.MSE_up = tf.metrics.mean_squared_error(labels, self.output, name="MSE")
+                if(self.regress_threshold is not None):
+                    self.confusion_matrix, self.confusion_matrix_up = self.update_confusion_matrix(tf.to_int32(labels>=self.regress_threshold), 
+                                                                                                   tf.to_int32(self.output>=self.regress_threshold), 
+                                                                                                   name="confusion_matrix", nb_classes = 2)
+                else:
+                    self.confusion_matrix, self.confusion_matrix_up = [], []
                 tf.summary.scalar('Loss', self.loss)
                 
             else:
@@ -473,7 +483,7 @@ class Model:
             for i in range(nb_pics):
                 for j in range(self.nb_classes):
                     tf.summary.scalar('prob_pic_{}_class_{}'.format(i,j), self.prob[i,j])
-                
+                    
     def weights_summary(self, var, name):
         with tf.variable_scope(name):
             var_flatten = tf.reshape(var, [-1])

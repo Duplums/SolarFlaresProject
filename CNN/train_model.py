@@ -97,7 +97,8 @@ def create_TF_graph(data, training, test_on_training=False):
             _model = model.Model('LRCN', pb_kind=pb_kind,
                                          nb_classes=nb_classes,
                                          training_mode=training,
-                                         dropout_prob=config['dropout_prob'], 
+                                         dropout_prob=config['dropout_prob'],
+                                         regress_threshold=config['regression_threshold'],
                                          loss_weights=loss_weights)
             _model.build_lrcn(input_data[0])
             _model.construct_results(input_data[1])
@@ -151,10 +152,13 @@ def create_TF_graph(data, training, test_on_training=False):
                 ops = [merged, 
                        grad_step, 
                        _model.loss,
-                       _model.MSE_up, _model.output, 
+                       _model.MSE_up,
+                       _model.confusion_matrix_up,
+                       _model.output, 
                        input_data[1]]
             else:
                 ops = [_model.loss, _model.MSE_up,
+                       _model.confusion_matrix_up,
                        _model.output, input_data[1]]
 
         # Adds the global iteration counter    
@@ -168,7 +172,7 @@ def create_TF_graph(data, training, test_on_training=False):
                            _model.confusion_matrix,
                            _model.accuracy_per_class]
         elif(pb_kind == 'regression'):
-            metrics_ops = [_model.MSE]
+            metrics_ops = [_model.MSE, _model.confusion_matrix]
         else:
             metrics_ops = []
         
@@ -234,6 +238,7 @@ def train_model(data):
             batch_it = 0
             end_of_batch = False
             step = 0
+            
             while(not end_of_batch):
                 # Generates the next batch of data and loads it in memory
                 end_of_batch = data_generator.gen_batch_dataset(save_extracted_data=False, 
@@ -294,6 +299,8 @@ def train_model(data):
                                 elif(pb_kind == 'regression'):
                                     print('Output: {}\t Ground truth: {}'.format(results[-3], results[-2]))
                                     print('Mean Squared Error: {:.3f}'.format(metrics[0]))
+                                    print('Confusion matrix [threshold {}]:\n{}'.format(config['regression_threshold'], metrics[1]))
+
                         except tf.errors.OutOfRangeError:                            
                             end_of_data = True
                     
@@ -401,25 +408,32 @@ def test_model(data, test_on_training = False, save_features = False):
                     # Prints the memory usage
                 mem = psutil.virtual_memory()
                 print('Memory info: {0}% used, {1:.2f} GB available, {2:.2f}% active'.format(mem.percent, mem.available/(1024**3), 100*mem.active/mem.total))
-                print('\n\t----- BATCH {} -----\n'.format(batch_it))
-                print('Current counter: {}\n'.format(global_counter))
-                if(pb_kind == 'classification'):
-                    print('\nConfusion matrix: \n{}'.format(metrics[3]))  
-                    print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}'.
+                if(metrics is not None):
+                    # Prints the confusion matrix
+                    if(pb_kind == 'classification'):
+                        print('\nConfusion matrix: \n{}'.format(metrics[3]))  
+                        
+                        
+                    print('\n\t----- BATCH {} -----\n'.format(batch_it))
+                    print('Current counter: {}\n'.format(global_counter))
+                    if(pb_kind == 'classification'):
+                        print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}'.
                           format(metrics[0], metrics[1], metrics[2], metrics[4]))
-                elif(pb_kind == 'regression'):
-                    print('MSE: {:.5f}'.format(metrics[0]))
-                elif(pb_kind == 'encoder'):
-                    print('Loss: {}'.format(results[0]))
-                
-                # Finally, saves the confusion matrix, if needed.
-                if(pb_kind == 'classification' and save_features):
-                    if(test_on_training):
-                        np.save(checkpoint_dir+'/training_confusion_matrix', metrics[3])
-                    else:
-                        np.save(checkpoint_dir+'/testing_confusion_matrix', metrics[3])
-                batch_it += 1
-                
+                    elif(pb_kind == 'regression'):
+                        print('MSE: {:.5f}'.format(metrics[0]))
+                        print('Confusion matrix [threshold {}]:\n{}'.format(config['regression_threshold'], metrics[1]))
+                    elif(pb_kind == 'encoder'):
+                        print('Loss: {}'.format(results[0]))
+                    
+                    # Finally, saves the confusion matrix, if needed.
+                    if(pb_kind == 'classification'):
+                        if(test_on_training):
+                            np.save(checkpoint_dir+'/training_confusion_matrix', metrics[3])
+                        else:
+                            np.save(checkpoint_dir+'/testing_confusion_matrix', metrics[3])
+                    batch_it += 1
+                else:
+                    print('No metrics to show. We assume there is no data for the test.')
         else:
             print('Impossible to restore the model. Test aborted.')
     
