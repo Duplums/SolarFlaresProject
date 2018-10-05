@@ -213,7 +213,7 @@ class Model:
                                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
                                             strides=(1,1), padding='same', activation='relu', name='conv4_3')
             if(self.batch_norm): self.conv4_3 = tf.layers.batch_normalization(self.conv4_3, training=self.training_mode, name='bn4_3')
-            self.pool4 = tf.layers.max_pooling2d(self.conv4_1, pool_size=(2,2), strides=(2,2), padding='same')
+            self.pool4 = tf.layers.max_pooling2d(self.conv4_3, pool_size=(2,2), strides=(2,2), padding='same')
             ### conv3 - 512
             self.conv5_1 = tf.layers.conv2d(self.pool4, filters=512, kernel_size=(3, 3), 
                                             kernel_initializer=tf.initializers.random_normal(mean=0, stddev=1e-3), 
@@ -233,7 +233,7 @@ class Model:
                                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
                                             strides=(1,1), padding='same', activation='relu', name='conv5_3')
             if(self.batch_norm): self.conv5_3 = tf.layers.batch_normalization(self.conv5_3, training=self.training_mode, name='bn5_3')
-            self.pool5 = tf.layers.max_pooling2d(self.conv5_1, pool_size=(2,2), strides=(2,2), padding='same')
+            self.pool5 = tf.layers.max_pooling2d(self.conv5_3, pool_size=(2,2), strides=(2,2), padding='same')
             
             # Symmetric decoder
             ### unconv3 - 512
@@ -303,7 +303,7 @@ class Model:
             ### Skip connection 2
             #self.unconv3_1 = tf.add(self.unconv3_1, self.conv3_1)
             ### unconv3 - 128
-            self.unpool2 = tf.image.resize_images(self.unconv3_2, tf.shape(self.conv2_1)[1:3], align_corners=True)
+            self.unpool2 = tf.image.resize_images(self.unconv3_1, tf.shape(self.conv2_1)[1:3], align_corners=True)
             self.unconv2_2 = tf.layers.conv2d(self.unpool2, filters=128, kernel_size=(3, 3), 
                                               kernel_initializer=tf.initializers.random_normal(mean=0, stddev=1e-3), 
                                               bias_initializer=tf.constant_initializer(0),
