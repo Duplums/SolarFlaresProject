@@ -283,8 +283,8 @@ def train_model(data):
                                
                                 # Prints the reconstruction 
                                 elif(pb_kind == 'encoder' and display_plots):
-                                    true_pic = results[1][0]
-                                    rec_pic = results[2][0]
+                                    true_pic = results[-3][0]
+                                    rec_pic = results[-2][0]
                                     pics = np.concatenate((true_pic, rec_pic), axis=2)
                                     labels = ['True {}'.format(seg) for seg in config['segs']]
                                     labels += ['Reconstructed {}'.format(seg) for seg in config['segs']]
