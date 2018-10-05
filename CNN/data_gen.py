@@ -44,6 +44,7 @@ class Data_Gen:
     seq_length_iterator = None
     training_mode = None
     pb_kind = None
+    flare_level = None
     
     def __init__(self, data_name, config, training=True, max_pic_size=None, verbose = False):
         assert data_name in {'SF', 'SF_encoded', 'MNIST', 'CIFAR-10', 'IMG_NET'}
@@ -69,6 +70,7 @@ class Data_Gen:
             assert os.path.isdir(config['input_features_dir'])
             assert os.path.isdir(config['output_features_dir'])
             self.segs = config['segs']
+            self.flare_level = config['flare_level']
             self.input_features_dir = config['input_features_dir']
             self.output_features_dir = config['output_features_dir']
             self.resize_method = config['resize_method']
@@ -261,8 +263,7 @@ class Data_Gen:
                 print('Number of classes > 2 case : not yet implemented')
                 raise
         elif(self.pb_kind == 'regression'):
-            flare_level = {'A': 1e0, 'B': 1e1, 'C': 1e2, 'M': 1e3, 'X': 1e4}
-            return np.log(flare_level[flare_class[0]] * float(flare_class[1:]))
+            return np.log(self.flare_level[flare_class[0]] * float(flare_class[1:]))
         else:
             print('Illegal problem for assigning a label: {}'.format(self.pb_kind))
             raise
