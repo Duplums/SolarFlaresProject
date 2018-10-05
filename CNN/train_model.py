@@ -383,8 +383,8 @@ def test_model(data, test_on_training = False, save_features = False):
                             # and the picture after the last conv (512 filters)
                             first_conv_pic = results[3][0]
                             last_conv_pic = results[4][0]
-                            labels_first = ['1st filter {}'.format(k) for k in range(8*8)]
-                            labels_last = ['5th filter {}'.format(k) for k in range(16*16)]
+                            labels_first = ['1st filter {}'.format(k) for k in range(64)]
+                            labels_last = ['5th filter {}'.format(k) for k in range(512)]
                             pt.Plotting_Tools.plot_pictures(first_conv_pic, nrows=8, ncols=8, labels=labels_first)
                             pt.Plotting_Tools.plot_pictures(last_conv_pic, nrows=10, ncols=10, labels=labels_last)
                             
