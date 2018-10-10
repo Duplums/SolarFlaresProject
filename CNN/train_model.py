@@ -137,6 +137,7 @@ def create_TF_graph(data, training, test_on_training=False):
                 ops = [merged, 
                        grad_step, 
                        _model.loss,
+                       _model.pool5,
                        _model.input_layer, 
                        _model.output]
             else:
@@ -291,13 +292,16 @@ def train_model(data):
                                 elif(pb_kind == 'encoder' and display_plots):
                                     true_pic = results[-3][0]
                                     rec_pic = results[-2][0]
+                                    out_encoder = results[-4][0]
                                     pics = np.concatenate((true_pic, rec_pic), axis=2)
                                     labels = ['True {}'.format(seg) for seg in config['segs']]
                                     labels += ['Reconstructed {}'.format(seg) for seg in config['segs']]
+                                    labels_out_encoder = ['Filter {}'.format(k) for k in range(2*len(config['segs']))]
                                     pt.Plotting_Tools.plot_pictures(pics, nrows=2, ncols=len(config['segs']), labels=labels, figsize=(3*len(config['segs']), 4))
-
+                                    pt.Plotting_Tools.plot_pictures(out_encoder, nrows=2, ncols=len(config['segs']), labels=labels_out_encoder, figsize=(3*len(config['segs']), 4))
                                 # Prints the true and predicted value(s)
                                 elif(pb_kind == 'regression'):
+                                    print('Input size: {}'.format(results[-4][0].shape))
                                     if(display_plots):
                                         pic_lrcn = results[-4][0] # 512 filters
                                         pt.Plotting_Tools.plot_pictures(pic_lrcn, nrows=2, ncols=2)
@@ -425,7 +429,7 @@ def test_model(data, test_on_training = False, save_features = False):
                           format(metrics[0], metrics[1], metrics[2], metrics[4]))
                     elif(pb_kind == 'regression'):
                         print('MSE: {:.5f}'.format(metrics[0]))
-                        print('Confusion matrix [threshold {}]:\n{}'.format(config['regression_threshold'], metrics[1]))
+                        print('Confusion matrix (threshold {}):\n{}'.format(config['regression_threshold'], metrics[1]))
                     elif(pb_kind == 'encoder'):
                         print('Loss: {}'.format(results[0]))
                     
