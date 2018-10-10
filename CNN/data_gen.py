@@ -387,7 +387,7 @@ class Data_Gen:
     
     @staticmethod
     def _extract_frame(frame, frame_segs, frame_final_segs = None, verbose = False):
-        if(any([type(seg) == bytes for seg in frame_segs])):
+        if(any([type(seg) == bytes or type(seg) == np.bytes_ for seg in frame_segs])):
             frame_segs = [seg.decode() for seg in frame_segs]
         if(frame_final_segs is None):
             n = frame.shape[2]
