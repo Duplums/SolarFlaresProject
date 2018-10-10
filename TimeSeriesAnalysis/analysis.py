@@ -168,6 +168,69 @@ plt.ylabel('RMS between the last frame and the i-th frame')
 plt.legend()
 plt.show()
 
+## Analysis of the l1-error, total variation, unsigned magnetic flux and mean shear angle for all >=M-class flares
+## within 48h before an eruption
+ 
+(scalars_M_X, time) = np.load('l1_TV_USFLUX_MEANSHR_M_X_analysis.npy')
+(scalars_B, time) = np.load('l1_err_TV_USFLUX_MEANSHR_B_flares.npy')
+
+plt.semilogy(time[:-1],  np.median(scalars_M_X[:,0,:-1], axis=0), label ='l1-error for M/X-class flares')
+plt.semilogy(time[:-1], np.percentile(scalars_M_X[:,0,:-1], 25, axis=0), 'b--')
+plt.semilogy(time[:-1], np.percentile(scalars_M_X[:,0,:-1], 75, axis=0), 'b--')
+plt.semilogy(time[:-1],  np.median(scalars_B[:,0,:-1], axis=0), 'r', label ='l1-error for B-class flares')
+plt.semilogy(time[:-1], np.percentile(scalars_B[:,0,:-1], 25, axis=0), 'b--')
+plt.semilogy(time[:-1], np.percentile(scalars_B[:,0,:-1], 75, axis=0), 'b--')
+plt.xlabel('Time from the eruption (in minutes)')
+plt.legend()
+plt.show()
+
+plt.semilogy(time,  np.median(scalars_M_X[:,1,:], axis=0), label='Total Variation for M/X-class flares')
+plt.plot(time, np.percentile(scalars_M_X[:,1,:], 25, axis=0), 'b--')
+plt.plot(time, np.percentile(scalars_M_X[:,1,:], 75, axis=0), 'b--')
+plt.plot(time[:-1],  np.median(scalars_B[:,0,:-1], axis=0), 'r', label ='TV for B-class flares')
+plt.plot(time[:-1], np.percentile(scalars_B[:,0,:-1], 25, axis=0), 'b--')
+plt.plot(time[:-1], np.percentile(scalars_B[:,0,:-1], 75, axis=0), 'b--')
+plt.xlabel('Time from the eruption (in minutes)')
+plt.legend()
+plt.show()
+
+plt.semilogy(time,  np.median(scalars_M_X[:,2,:], axis=0), label='Unsigned flux for M/X-class flares')
+plt.plot(time, np.percentile(scalars_M_X[:,2,:], 25, axis=0), 'b--')
+plt.plot(time, np.percentile(scalars_M_X[:,2,:], 75, axis=0), 'b--')
+plt.plot(time[:-1],  np.median(scalars_B[:,0,:-1], axis=0), label ='Unsigned flux for B-class flares')
+plt.plot(time[:-1], np.percentile(scalars_B[:,0,:-1], 25, axis=0), 'b--')
+plt.plot(time[:-1], np.percentile(scalars_B[:,0,:-1], 75, axis=0), 'b--')
+plt.xlabel('Time from the eruption (in minutes)')
+plt.legend()
+plt.show()
+
+plt.semilogy(time,  np.median(scalars_M_X[:,3,:], axis=0), 'purple', label='Shear angle for M/X class flares')
+plt.plot(time, np.percentile(scalars_M_X[:,3,:], 25, axis=0), 'b--', label='1st quantile')
+plt.plot(time, np.percentile(scalars_M_X[:,3,:], 75, axis=0), 'b--', label='3rd quantile')
+plt.plot(time[:-1],  np.median(scalars_B[:,0,:-1], axis=0), label ='Shear angle for B class flares')
+plt.plot(time[:-1], np.percentile(scalars_B[:,0,:-1], 25, axis=0), 'b--')
+plt.plot(time[:-1], np.percentile(scalars_B[:,0,:-1], 75, axis=0), 'b--')
+plt.xlabel('Time from the eruption (in minutes)')
+plt.legend()
+plt.show()
+
+
+import h5py as h5
+# f1 contains the header to be added to f2
+def add_headers(file1, file2):
+    with h5.File(file1, 'r') as f1:
+        with h5.File(file2, 'r+') as f2:
+            for vid_key in f2.keys():
+                for f1_attr in f1[vid_key].attrs.keys():
+                    f2[vid_key].attrs[f1_attr] = f1[vid_key].attrs[f1_attr]
+                for frame_key in f2[vid_key].keys():
+                    for f1_attr in f1[vid_key][frame_key].attrs.keys():
+                        f2[vid_key][frame_key].attrs[f1_attr] = f1[vid_key][frame_key].attrs[f1_attr]
+
+
+
+
+
 
 
 
