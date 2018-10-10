@@ -48,18 +48,18 @@ class Model:
                                        padding='same', activation='tanh', return_sequences=False, 
                                        return_state=False, dropout=self.dropout_prob)(self.input_layer)
             ### spp - 8 [output = 8*8*512 = 32768]
-            self.spp = self.spp_layer(self.convLSTM, [8], 'spp', pooling='TV')
-            self.fc1 = Dense(512, activation='relu', kernel_initializer=init)(self.spp)
+            self.spp = self.spp_layer(self.convLSTM, [1], 'spp', pooling='TV')
+            self.fc1 = Dense(256, activation='relu', kernel_initializer=init)(self.spp)
             if(self.training_mode): self.fc1 = Dropout(self.dropout_prob)(self.fc1)
-            self.fc2 = Dense(256, activation='relu', kernel_initializer=init)(self.fc1)
-            if(self.training_mode): self.fc2 = Dropout(self.dropout_prob)(self.fc2)
-            self.fc3 = Dense(64, activation='relu', kernel_initializer=init)(self.fc2)
-            if(self.training_mode): self.fc3 = Dropout(self.dropout_prob)(self.fc3)
+            #self.fc2 = Dense(256, activation='relu', kernel_initializer=init)(self.fc1)
+            #if(self.training_mode): self.fc2 = Dropout(self.dropout_prob)(self.fc2)
+            #self.fc3 = Dense(64, activation='relu', kernel_initializer=init)(self.fc2)
+            #if(self.training_mode): self.fc3 = Dropout(self.dropout_prob)(self.fc3)
 
             if(self.pb_kind == 'classification'):
                self.output = Dense(self.nb_classes, kernel_initializer=init)(self.fc3)
             elif(self.pb_kind == 'regression'):
-                self.output = tf.squeeze(Dense(1)(self.fc3), axis=1) # [[1.2], [2.3], ...] => [1.2, 2.3, ...]
+                self.output = tf.squeeze(Dense(1)(self.fc1), axis=1) # [[1.2], [2.3], ...] => [1.2, 2.3, ...]
             else:
                 print('Illegal kind of problem for LRCN model: {}'.format(self.pb_kind))
                 
@@ -482,7 +482,7 @@ class Model:
     # Useful for testing phase
     def reset_metrics(self):
         with tf.variable_scope(self.name):
-            if(self.pb_kind == 'classification'):
+            if(self.pb_kind == 'classification' or self.pb_kind == 'regression'):
                 reset =  [tf.variables_initializer([self.confusion_matrix])]
             else:
                 reset = []
