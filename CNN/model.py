@@ -48,8 +48,8 @@ class Model:
                                        padding='same', activation='tanh', return_sequences=False, 
                                        return_state=False, dropout=self.dropout_prob)(self.input_layer)
             ### spp - 8 [output = 8*8*512 = 32768]
-            self.spp = self.spp_layer(self.convLSTM, [1], 'spp', pooling='TV')
-            self.fc1 = Dense(256, activation='relu', kernel_initializer=init)(self.spp)
+            self.spp = self.spp_layer(self.convLSTM, [4, 2, 1], 'spp', pooling='TV')
+            self.fc1 = Dense(512, activation='relu', kernel_initializer=init)(self.spp)
             if(self.training_mode): self.fc1 = Dropout(self.dropout_prob)(self.fc1)
             #self.fc2 = Dense(256, activation='relu', kernel_initializer=init)(self.fc1)
             #if(self.training_mode): self.fc2 = Dropout(self.dropout_prob)(self.fc2)

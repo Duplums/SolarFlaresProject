@@ -176,18 +176,21 @@ class Data_Gen:
                         TV = 0
                         try:
                             this_frame = Data_Gen._extract_frame(vid[frame_key]['channels'], vid[frame_key].attrs['SEGS'], channels)
-                            if(last_frame is None and scalar == 'l1_err'):
+                            if(last_frame is None):
                                 last_frame = this_frame
                             for c in range(last_frame.shape[2]):
-                                if(vid[frame_key].attrs['SEGS'][c].decode() in channels):
+                                if(channels is None or vid[frame_key].attrs['SEGS'][c].decode() in channels):
                                         if(scalar == 'l1_err'):
                                             l1_err += np.sum(np.abs(sk.resize(this_frame[:,:,c], last_frame.shape[:2], preserve_range=True)-last_frame[:,:,c]))
-                                            last_frame = this_frame
                                         else:
                                             # only valid total variation
                                             TV += np.sum(np.sqrt(np.square(np.diff(this_frame[:,:,c], axis=0)[:, 1:])) + 
                                                                  np.square(np.diff(this_frame[:,:,c], axis=1)[1:, :]))
-                            normalization = np.product(last_frame.shape[0:2])*len(channels)
+                            if(channels is None):
+                                nb_channels = last_frame.shape[2]
+                            else:
+                                nb_channels = len(channels)
+                            normalization = np.product(last_frame.shape[0:2])*nb_channels
                             if(scalar == 'TV'):
                                 res[i] += [TV/normalization]
                             else:
@@ -199,6 +202,8 @@ class Data_Gen:
                     else:
                         res[i] += [vid[frame_key].attrs[scalar]]
                     i += 1
+                last_frame = this_frame
+
         if(time_event_last_frame):
             return np.flip(np.array(res), axis=1), np.flip(np.array(sample_time), axis=0)
         return np.array(res), np.array(sample_time)
@@ -208,9 +213,13 @@ class Data_Gen:
     # begin and end (from an event, time reversed). If values are missing (<5% by default), 
     # they are interpolated.
     @staticmethod
-    def extract_timeseries(paths_to_file = [], scalars = [], 
-                           channels = ['Br', 'Bt', 'Bp'], 
-                           time_step=60, tstart=0, tend=60*24, loss=0.05):
+    def extract_timeseries(paths_to_file = [], 
+                           scalars = [], 
+                           channels = None, 
+                           time_step=60, 
+                           tstart=0, 
+                           tend=60*24, 
+                           loss=0.05):
         nb_frames = int((tend - tstart)/time_step) + 1
         nb_scalars = len(scalars)
         sample_time = np.linspace(tstart, tend, nb_frames)
@@ -242,8 +251,7 @@ class Data_Gen:
                                         res_vid = np.zeros((nb_scalars, nb_frames), dtype=np.float32)
                                         for k in range(nb_scalars):
                                             res_vid[k,:] = np.interp(sample_time, vid_sample_time, vid_time_series[k,:])
-                                        res += [res_vid]
-                            
+                                        res += [res_vid]                            
                 except:
                     print('Impossible to extract time series from file {}'.format(file_path))
                     print(traceback.format_exc())
@@ -378,14 +386,23 @@ class Data_Gen:
         return new_frame
     
     @staticmethod
-    def _extract_frame(frame, frame_segs, frame_final_segs, verbose = False):
-        nb_channels = len(frame_final_segs)
+    def _extract_frame(frame, frame_segs, frame_final_segs = None, verbose = False):
+        if(any([type(seg) == bytes for seg in frame_segs])):
+            frame_segs = [seg.decode() for seg in frame_segs]
+        if(frame_final_segs is None):
+            n = frame.shape[2]
+            nb_channels = n
+        else:
+            n = len(frame_segs)
+            nb_channels = len(frame_final_segs)
         shape_frame = frame.shape[0:2] + (nb_channels,)
         frame_tensor = np.zeros(shape_frame, dtype=np.float32)
         channel_counter = 0
         # Considers only certain segments
-        for k in range(len(frame_segs)):
-            if(frame_segs[k].decode() in frame_final_segs):
+        for k in range(n):
+            if(frame_final_segs is None or 
+               (frame_final_segs is not None and 
+               frame_segs[k] in frame_final_segs)):
                 frame_tensor[:,:,channel_counter] = frame[:,:,k]
                 channel_counter += 1
         # Checks 'NaN' (be careful ,the size might change)
