@@ -287,7 +287,6 @@ def train_model(data):
                                 # Prints the confusion matrix
                                 if(pb_kind == 'classification'):
                                     print('\nConfusion matrix: \n{}'.format(metrics[3]))  
-                               
                                 # Prints the reconstruction 
                                 elif(pb_kind == 'encoder' and display_plots):
                                     true_pic = results[-3][0]
