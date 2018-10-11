@@ -337,8 +337,17 @@ class Model:
                                               kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
                                               strides=(1,1), padding='same', activation=None, name='unconv1_1')
             
+            # FC-layers for predicting the total variation
+            self.spp = self.spp_layer(self.pool5, levels=[8, 4])
+            self.fc1 = tf.layers.dense(self.spp, 256, activation='relu',
+                                       kernel_initializer=tf.initializers.random_normal(mean=0, stddev=1e-3), 
+                                       bias_initializer=tf.constant_initializer(0), name='fc1')
+            self.fc2 = tf.layers.dense(self.fc1, 1, kernel_initializer=tf.initializers.random_normal(mean=0, stddev=1e-3), 
+                                       bias_initializer=tf.constant_initializer(0), name='fc2')
+            
             if(self.pb_kind == 'encoder'):
                 self.output = tf.cast(self.unconv1_1, dtype=tf.float32, name='output')
+                self.output_1 = tf.squeeze(self.fc2, axis=1, name='output_1')
             else:
                 print('Illegal kind of problem for VGG-16 autoencoder model: {}'.format(self.pb_kind))
                 
@@ -440,7 +449,12 @@ class Model:
             tf.summary.scalar('input_size_per_image', tf.reduce_prod(tf.shape(self.input_layer)[1:]))
             
             if(self.pb_kind == 'encoder'):
-                self.loss = tf.reduce_mean(tf.square(tf.subtract(self.input_layer, self.output))) #+ 0.1*tf.losses.get_regularization_loss()
+                self.TV = tf.divide(tf.reduce_sum(tf.abs(self.input_layer[:, 1:, :, :] - self.input_layer[:, :-1, :, :]), axis=[1,2,3])+\
+                                    tf.reduce_sum(tf.abs(self.input_layer[:, :, 1:, :] - self.input_layer[:, :, :-1, :]), axis=[1,2,3]),
+                                    tf.reduce_prod(tf.cast(tf.shape(self.input_layer)[1:], tf.float32)))
+                
+                self.loss = tf.reduce_mean(tf.square(tf.subtract(self.input_layer, self.output))) + \
+                            tf.reduce_mean(tf.abs(tf.subtract(self.TV, self.output_1)))
                 tf.summary.scalar('Loss', self.loss)
             
             elif(self.pb_kind == 'classification'):
