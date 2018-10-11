@@ -137,6 +137,8 @@ def create_TF_graph(data, training, test_on_training=False):
                 ops = [merged, 
                        grad_step, 
                        _model.loss,
+                       _model.output_1,
+                       _model.TV,
                        _model.pool5,
                        _model.input_layer, 
                        _model.output]
@@ -289,6 +291,7 @@ def train_model(data):
                                     print('\nConfusion matrix: \n{}'.format(metrics[3]))  
                                 # Prints the reconstruction 
                                 elif(pb_kind == 'encoder' and display_plots):
+                                    print('True TV: {}\tPredicted TV: {}'.format(results[-5], results[-6]))
                                     true_pic = results[-3][0]
                                     rec_pic = results[-2][0]
                                     out_encoder = results[-4][0]
