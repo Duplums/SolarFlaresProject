@@ -1,14 +1,16 @@
 
             # CONFIG FOR SOLAR FLARES DATA
 config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587] 
-                  'batch_memsize': 1024 , # xMB / global batch
-                  'num_threads' : 8,
-                  'model': 'LRCN',
-                  'pb_kind': 'classification',
-                  'checkpoint': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Checkpoints/SF',
-                  'tensorboard': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Tensorboard/logs_SF',
-                  'input_features_dir' : '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
-                  'output_features_dir': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
+                  'batch_memsize': 5000 , # xMB / global batch
+                  'num_threads' : 48,
+                  'model': 'VGG_16_encoder_decoder',
+                  'pb_kind': 'encoder',
+                  'flare_level': {'A':1e0, 'B':1e1, 'C':1e2, 'M':1e3, 'X':1e4},
+                  'checkpoint': '/home/nasa/checkpoints/autoencoder',
+                  'tensorboard': '/home/nasa/tensorboard/autoencoder',
+                  'input_features_dir' : '/home/nasa/features_extracted/input_features_dir',
+                  'output_features_dir': '/home/nasa/features_extracted/output_features_dir',
+                  'regression_threshold': 6.9077552789,
                   'learning_rate': 0.01,
                   'loss_weights': [1, 1.5],
                   'tolerance': 0.001,
@@ -17,7 +19,7 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                   'nb_classes': 2,
                   'batch_size': 1, # nb pictures / local batch,
                   'prefetch_buffer_size': 1, 
-                  'num_epochs': 100, # nb total epochs
+                  'num_epochs': 30, # nb total epochs
                   'checkpoint_iter': 1000, # save every 'checkpoint_iter' global iteration
                   'ar_attrs' : ['T_REC', 'NOAA_AR', 'HARPNUM', 'LAT_FWT', 'LON_FWT',
                                 'SIZE', 'SIZE_ACR', 'NACR', 'NPIX', 'LAT_MIN', 'LAT_MAX',
@@ -27,23 +29,25 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                   'subsampling' : 1,
                   'resize_method': 'NONE',
                   'rescaling_factor': 1,
-                  'display' : True,
+                  'display' : False,
                   'time_step': 60, # time step used in each video
-                  'training_paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/train/B-class-flares',
-                                     '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/train/M-X-class-flares'],
-                  'testing_paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/test/B-class-flares',
-                                    '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/test/M-X-class-flares']        
+                  'training_paths': ['/home/data/train/B-class-flares',
+                                     '/home/data/train/M-X-class-flares'],
+                  'testing_paths': ['/home/data/test/B-class-flares',
+                                    '/home/data/test/M-X-class-flares']        
                   },
             # CONFIG FOR SOLAR FLARE FEATURES EXTRACTED FROM THE ENCODER
             'SF_encoded': {'data_dims': [None, None, None, 512],
-                  'batch_memsize': 1024 , # xMB / global batch
-                  'num_threads' : 8,
+                  'batch_memsize': 5000 , # xMB / global batch
+                  'num_threads' : 48,
                   'model': 'LRCN',
-                  'pb_kind': 'classification',
-                  'checkpoint': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Checkpoints/SF',
-                  'tensorboard': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Tensorboard/logs_SF',
-                  'input_features_dir' : '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
-                  'output_features_dir': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
+                  'pb_kind': 'regression',
+                  'flare_level': {'A':1e0, 'B':1e1, 'C':1e2, 'M':1e3, 'X':1e4},
+                  'checkpoint': '/home/nasa/checkpoints/lrcn/regression',
+                  'tensorboard': '/home/nasa/tensorboard/lrcn/regression',
+                  'input_features_dir' : '/home/nasa/features_extracted/input_features_dir',
+                  'output_features_dir': '/home/nasa/features_extracted/output_features_dir',
+                  'regression_threshold': 6.9077552789,
                   'learning_rate': 0.01,
                   'loss_weights': [1, 1.5],
                   'tolerance': 0.001,
@@ -52,17 +56,19 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                   'nb_classes': 2,
                   'batch_size': 1, # nb videos / batch,
                   'prefetch_buffer_size': 1, 
-                  'num_epochs': 100, # nb total epochs
+                  'num_epochs': 50, # nb total epochs
                   'checkpoint_iter': 1000, # save every 'checkpoint_iter' global iteration
                   'ar_attrs' : [],
                   'segs': ['filter_{}'.format(k) for k in range(512)],
                   'subsampling' : 1,
                   'resize_method': 'ZERO_PADDING',
                   'rescaling_factor': 1,
-                  'display' : True,
+                  'display' : False,
                   'time_step': 60, # time step used in each video (in minutes)
-                  'training_paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF_encoded-HDF5/train'],
-                  'testing_paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF_encoded-HDF5/test']                
+                  'training_paths': ['/home/data_encoded/train/B-class-flares',
+                                     '/home/data_encoded/train/M-X-class-flares'],
+                  'testing_paths': ['/home/data_encoded/test/B-class-flares',
+                                    '/home/data_encoded/test/M-X-class-flares']                
                   },
            # CONFIG FOR MNIST DATA
           'MNIST': {'data_dims': [64, 64, 1],
