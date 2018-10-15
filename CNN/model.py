@@ -456,7 +456,6 @@ class Model:
                 self.loss = tf.reduce_mean(tf.square(tf.subtract(self.input_layer, self.output))) + \
                             tf.reduce_mean(tf.abs(tf.subtract(self.TV, self.output_1)))
                 tf.summary.scalar('Loss', self.loss)
-            
             elif(self.pb_kind == 'classification'):
                 # Results
                 self.prob = tf.nn.softmax(self.output)

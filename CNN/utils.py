@@ -1,14 +1,16 @@
 
             # CONFIG FOR SOLAR FLARES DATA
 config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587] 
-                  'batch_memsize': 1024 , # xMB / global batch
+                  'batch_memsize': 2048 , # xMB / global batch
                   'num_threads' : 8,
-                  'model': 'LRCN',
-                  'pb_kind': 'classification',
+                  'model': 'VGG_16_encoder_decoder',
+                  'pb_kind': 'encoder',
+                  'flare_level' : {'A': 1e0, 'B': 1e1, 'C': 1e2, 'M': 1e3, 'X': 1e4},
                   'checkpoint': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Checkpoints/SF',
                   'tensorboard': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Tensorboard/logs_SF',
                   'input_features_dir' : '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
                   'output_features_dir': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
+                  'regression_threshold': 6.9077552789, # == np.log(1e3) (== M-flare)
                   'learning_rate': 0.01,
                   'loss_weights': [1, 1.5],
                   'tolerance': 0.001,
@@ -29,21 +31,21 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                   'rescaling_factor': 1,
                   'display' : True,
                   'time_step': 60, # time step used in each video
-                  'training_paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/train/B-class-flares',
-                                     '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/train/M-X-class-flares'],
-                  'testing_paths': ['/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/test/B-class-flares',
-                                    '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/test/M-X-class-flares']        
+                  'training_paths': '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/train',
+                  'testing_paths': '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/test'        
                   },
             # CONFIG FOR SOLAR FLARE FEATURES EXTRACTED FROM THE ENCODER
             'SF_encoded': {'data_dims': [None, None, None, 512],
                   'batch_memsize': 1024 , # xMB / global batch
                   'num_threads' : 8,
                   'model': 'LRCN',
-                  'pb_kind': 'classification',
+                  'pb_kind': 'regression',
+                  'flare_level' : {'A': 1e0, 'B': 1e1, 'C': 1e2, 'M': 1e3, 'X': 1e4},
                   'checkpoint': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Checkpoints/SF',
                   'tensorboard': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Tensorboard/logs_SF',
                   'input_features_dir' : '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
                   'output_features_dir': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
+                  'regression_threshold': 6.9077552789, # == np.log(1e3) (== M-flare)
                   'learning_rate': 0.01,
                   'loss_weights': [1, 1.5],
                   'tolerance': 0.001,
