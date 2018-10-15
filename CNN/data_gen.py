@@ -5,8 +5,7 @@ the computer memory. The data memory size (in MB) is given and should not be exc
 It also builds the input pipeline for the whole TensorFlow computation.
 '''
 
-import os, re, pickle, traceback, math, drms, sys
-from collections import OrderedDict
+import os, re, pickle, traceback, math, drms
 import skimage.transform as sk
 import tensorflow as tf
 import numpy as np
