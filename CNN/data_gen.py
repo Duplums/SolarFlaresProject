@@ -104,30 +104,37 @@ class Data_Gen:
         else:
             print('Maximum size found : {}'.format(self.max_pic_size))
     
+    # Returns a list of all the files inside the directory 
+    # (can be recursive search with recursive_search=True)
+    @staticmethod
+    def file_scanning(path, recursive_search=False, list_files = []):
+        if(os.path.isdir(path)):
+            for file in os.listdir(path):
+                file_path = os.path.join(path, file)
+                if(recursive_search):
+                    Data_Gen.file_scanning(file_path, recursive_search, list_files)
+                elif(os.path.isfile(file_path)):
+                    list_files += [file_path]
+        elif(os.path.isfile(path)):
+            list_files += [path]
+        return list_files
+    
     def init_paths_to_file(self, verbose = False):
         self.paths_to_file = []
         self.size_of_files = []
         self.nb_total_files = 0
         self.num_files_analyzed = 0
         nb_files_ignored = 0
-        for path in self.main_path:
-            if os.path.exists(path):
-                for file in os.listdir(path):   
-                    path_to_file = os.path.join(path, file)
-                    if(os.path.isfile(path_to_file)):
-                        size = os.path.getsize(path_to_file)/(1024*1024)
-                        if(size <= self.memory_size):
-                            self.paths_to_file += [path_to_file]
-                            self.size_of_files += [size/float(self.subsampling)]
-                            self.nb_total_files += 1
-                        else:
-                            if(verbose):
-                                print('Warning: file {} [{}MB] will not fit in memory (> {}MB). Ignored'.format(file, size, self.memory_size))
-                            nb_files_ignored += 1
-                    else:
-                        print('Directory \'{}\' ignored.'.format(path_to_file))
+        for path in Data_Gen.file_scanning(self.main_path, True):
+            size = os.path.getsize(path)/(1024*1024)
+            if(size <= self.memory_size):
+                self.paths_to_file += [path]
+                self.size_of_files += [size/float(self.subsampling)]
+                self.nb_total_files += 1
             else:
-                print('Path {} does not exist. Ignored'.format(path))
+                if(verbose):
+                    print('Warning: file {} [{}MB] will not fit in memory (> {}MB). Ignored'.format(os.path.basename(path), size, self.memory_size))
+                nb_files_ignored += 1
         print('Number of files ignored (>{}MB): {}'.format(self.memory_size, nb_files_ignored))
     
      # Returns the maximum size of pictures found in all files
@@ -207,11 +214,16 @@ class Data_Gen:
         if(time_event_last_frame):
             return np.flip(np.array(res), axis=1), np.flip(np.array(sample_time), axis=0)
         return np.array(res), np.array(sample_time)
+        
     # Extracts some scalars from video that evolve according to the time (ex: SIZE of a frame).
-    # The scalar must be in the frame attributes of a video. These time series are concatenated
-    # in one list for every videos. 'tstart' and 'tend' are used to know when the time series
+    # The scalar must be in the frame attributes of a video (exception for 'TV' and 'l1_err': they are
+    # computed directly in '_extract_timeseries_from_video'). These time series are concatenated
+    # in one list for every video. 'tstart' and 'tend' are used to know when the time series
     # begin and end (from an event, time reversed). If values are missing (<5% by default), 
     # they are interpolated.
+    
+    # NOTE: all frames MUST have 'T_REC' and 'SEGS' in their attribute. All videos MUST have 'end_time'
+    # in their attribute.
     @staticmethod
     def extract_timeseries(paths_to_file = [], 
                            scalars = [], 
@@ -226,38 +238,31 @@ class Data_Gen:
         res = []
         print('{} frames are considered from {}min before a solar eruption to {}min.'.format(nb_frames, tstart, tend))
         if(type(paths_to_file) is not list and os.path.isdir(paths_to_file)):
-            print('Path to a directory. All the files inside are scanned')
-            path = paths_to_file
-            paths_to_file = []
-            for file in os.listdir(path):
-                if(os.path.isfile(os.path.join(path, file))):
-                    paths_to_file += [os.path.join(path, file)]
+            print('Path to a directory. All the files and directories inside are scanned')
+            paths_to_file = Data_Gen.file_scanning(paths_to_file, recursive_search=True)
         print('INFO: a linear interpolation is used to reconstruct the time series.')
         for file_path in paths_to_file:
-            if(os.path.isfile(file_path)):
-                try:
-                    with h5.File(file_path, 'r') as db:
-                        print('Analyzing file {}'.format(file_path))
-                        for vid_key in db.keys():
-                            vid_time_series, vid_sample_time = Data_Gen._extract_timeseries_from_video(db[vid_key], scalars, channels)
-                            if(len(vid_sample_time) > 0):
-                                i_start = np.argmin(abs(vid_sample_time - tstart))
-                                i_end = np.argmin(abs(vid_sample_time - tend))
-                                #if(np.any(np.isnan(vid_time_series))):
-                                #    print('Video {} ignored because the time series associated contains \'NaN\'.'.format(vid_key))
-                                if(abs(vid_sample_time[i_start] - tstart) <= time_step):
-                                    nb_frames_in_vid = i_end - i_start + 1
-                                    if(1 - nb_frames_in_vid/nb_frames <= loss):
-                                        res_vid = np.zeros((nb_scalars, nb_frames), dtype=np.float32)
-                                        for k in range(nb_scalars):
-                                            res_vid[k,:] = np.interp(sample_time, vid_sample_time, vid_time_series[k,:])
-                                        res += [res_vid]                            
-                except:
-                    print('Impossible to extract time series from file {}'.format(file_path))
-                    print(traceback.format_exc())
-                    raise
-            else:
-                print('File {} does not exist. Ignored'.format(file_path))
+            try:
+                with h5.File(file_path, 'r') as db:
+                    print('Analyzing file {}'.format(os.path.basename(file_path)))
+                    for vid_key in db.keys():
+                        vid_time_series, vid_sample_time = Data_Gen._extract_timeseries_from_video(db[vid_key], scalars, channels)
+                        if(len(vid_sample_time) > 0):
+                            i_start = np.argmin(abs(vid_sample_time - tstart))
+                            i_end = np.argmin(abs(vid_sample_time - tend))
+                            #if(np.any(np.isnan(vid_time_series))):
+                            #    print('Video {} ignored because the time series associated contains \'NaN\'.'.format(vid_key))
+                            if(abs(vid_sample_time[i_start] - tstart) <= time_step):
+                                nb_frames_in_vid = i_end - i_start + 1
+                                if(1 - nb_frames_in_vid/nb_frames <= loss):
+                                    res_vid = np.zeros((nb_scalars, nb_frames), dtype=np.float32)
+                                    for k in range(nb_scalars):
+                                        res_vid[k,:] = np.interp(sample_time, vid_sample_time, vid_time_series[k,:])
+                                    res += [res_vid]                            
+            except:
+                print('Impossible to extract time series from file {}'.format(file_path))
+                print(traceback.format_exc())
+                raise
 
         return np.array(res, dtype=np.float32), sample_time
     

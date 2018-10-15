@@ -494,9 +494,18 @@ class Data_Downloader:
         return list_keys
     
     # Gets the data from the JSOC data base according to the solar eruptions described
-    # in the GOES data base. The queries are based on SunPy and
-    # the output files are in HDF5 format.
-    # Returns True if the data has been dowloaded successfully; False otherwise.
+    # in the GOES data base. The queries are based on SunPy and the output files are in 
+    # HDF5 format. It returns True if the data has been dowloaded successfully; False otherwise.
+    # Args:
+    # - files_core_name: each file created will have the following format: {file_core_name}_part_{}.hdf5
+    # - directory: each file created will be saved in 'self.main_path/directory'
+    # - goes_data_path: path to the GOES.csv file that lists all the flares
+    # - goes_row_pattern: regular expression indicating which flares will be downloaded
+    # - start_time, end_time: time period considered in the lookup 
+    # - nb_frames_before_event: nb of frames downloaded in each video
+    # - sample_time: cadence considered for each video (in hours, minimum: 12min <=> 0.2h)
+    # - limit: maximum nb of videos (== # of flares) downloaded
+    
     def download_jsoc_data(self, files_core_name = 'jsoc_data',
                            directory = None,
                            goes_data_path = None, 

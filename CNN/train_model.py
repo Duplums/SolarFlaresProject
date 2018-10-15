@@ -137,7 +137,7 @@ def create_TF_graph(data, training, test_on_training=False):
                 ops = [merged, 
                        grad_step, 
                        _model.loss,
-                       _model.output_1,
+#                       _model.output_1,
                        _model.TV,
                        _model.pool5,
                        _model.input_layer, 
@@ -291,7 +291,7 @@ def train_model(data):
                                     print('\nConfusion matrix: \n{}'.format(metrics[3]))  
                                 # Prints the reconstruction 
                                 elif(pb_kind == 'encoder' and display_plots):
-                                    print('True TV: {}\tPredicted TV: {}'.format(results[-5], results[-6]))
+#                                    print('True TV: {}\tPredicted TV: {}'.format(results[-5], results[-6]))
                                     true_pic = results[-3][0]
                                     rec_pic = results[-2][0]
                                     out_encoder = results[-4][0]
@@ -419,14 +419,10 @@ def test_model(data, test_on_training = False, save_features = False):
                 mem = psutil.virtual_memory()
                 print('Memory info: {0}% used, {1:.2f} GB available, {2:.2f}% active'.format(mem.percent, mem.available/(1024**3), 100*mem.active/mem.total))
                 if(metrics is not None):
-                    # Prints the confusion matrix
-                    if(pb_kind == 'classification'):
-                        print('\nConfusion matrix: \n{}'.format(metrics[3]))  
-                        
-                        
                     print('\n\t----- BATCH {} -----\n'.format(batch_it))
                     print('Current counter: {}\n'.format(global_counter))
                     if(pb_kind == 'classification'):
+                        print('\nConfusion matrix: \n{}'.format(metrics[3]))  
                         print('Accuracy : {}, Precision : {} \nRecall : {}, Accuracy per class : {}'.
                           format(metrics[0], metrics[1], metrics[2], metrics[4]))
                     elif(pb_kind == 'regression'):
@@ -434,7 +430,7 @@ def test_model(data, test_on_training = False, save_features = False):
                         print('Confusion matrix (threshold {}):\n{}'.format(config['regression_threshold'], metrics[1]))
                     elif(pb_kind == 'encoder'):
                         print('Loss: {}'.format(results[0]))
-                    
+                        print('MSE: {:.5f}'.format(metrics[0]))
                     # Finally, saves the confusion matrix, if needed.
                     if(pb_kind == 'classification'):
                         if(test_on_training):

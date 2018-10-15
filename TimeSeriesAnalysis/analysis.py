@@ -171,8 +171,8 @@ plt.show()
 ## Analysis of the l1-error, total variation, unsigned magnetic flux and mean shear angle for all >=M-class flares
 ## within 48h before an eruption
  
-(scalars_M_X, time) = np.load('l1_TV_USFLUX_MEANSHR_M_X_analysis.npy')
-(scalars_B, time) = np.load('l1_err_TV_USFLUX_MEANSHR_B_flares.npy')
+(scalars_M_X, time) = np.load('TV_M.npy')
+(scalars_B, time) = np.load('TV_B.npy')
 
 plt.semilogy(time[:-1],  np.median(scalars_M_X[:,0,:-1], axis=0), label ='l1-error for M/X-class flares')
 plt.semilogy(time[:-1], np.percentile(scalars_M_X[:,0,:-1], 25, axis=0), 'b--')
