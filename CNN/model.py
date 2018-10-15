@@ -48,7 +48,7 @@ class Model:
                                        padding='same', activation='tanh', return_sequences=False, 
                                        return_state=False, dropout=self.dropout_prob)(self.input_layer)
             ### spp - 8 [output = 8*8*512 = 32768]
-            self.spp = self.spp_layer(self.convLSTM, [4, 2, 1], 'spp', pooling='TV')
+            self.spp = self.spp_layer(self.convLSTM, [[4,4], [2,2], [1,1]], 'spp', pooling='TV')
             self.fc1 = Dense(512, activation='relu', kernel_initializer=init)(self.spp)
             if(self.training_mode): self.fc1 = Dropout(self.dropout_prob)(self.fc1)
             #self.fc2 = Dense(256, activation='relu', kernel_initializer=init)(self.fc1)
@@ -238,8 +238,8 @@ class Model:
 #                                            kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
 #                                            strides=(1,1), padding='same', activation='relu', name='conv5_3')
 #            if(self.batch_norm): self.conv5_3 = tf.layers.batch_normalization(self.conv5_3, training=self.training_mode, name='bn5_3')
-            self.pool5 = tf.layers.max_pooling2d(self.conv5_1, pool_size=(2,2), strides=(2,2), padding='same')
-            
+            self.pool5 = self.spp_layer(self.conv5_1, levels=[[8, 16]], pooling='MAX', concatenate=False)
+
             # Symmetric decoder
             ### unconv3 - 512
             self.unpool5 = tf.image.resize_images(self.pool5, tf.shape(self.conv5_1)[1:3], align_corners=True)
@@ -391,42 +391,59 @@ class Model:
             
             self.model_built = 'LSTM'
             return self.output
-        
     
+    # argmax should have the same size as input_. Each indices i in argmax are computed according to:
+    # i = c + C*(x + W*(y + H*b)) if the max value is initially at [b, y, x, c].
     @staticmethod
-    def spp_layer(input_, levels=[4, 2, 1], name='spp_layer', pooling='MAX'): # pooling in {'AVG', 'MAX', 'TV'}
-        # Input shape can be: b x h x w x c (CNN) or b x nb_frames x h x w x c (LRCN, b = 1 if one video at a time)
-        # Returns shape b x N or b x nb_frames x N where N = prod(levels.*levels)*c
-        
-        shape = tf.cast(tf.shape(input_), tf.float32)
+    def unpool(input_, argmax, output_shape, name='unpool_layer'):
         with tf.variable_scope(name):
-            pool_outputs = []
+            input_unpool_flatten = tf.sparse_to_dense(tf.reshape(argmax, [-1]),
+                                                      [tf.reduce_prod(output_shape)], 
+                                                      tf.reshape(input_, [-1]), 
+                                                      default_value=0, 
+                                                      validate_indices=False)
+            out = tf.reshape(input_unpool_flatten, output_shape)
+        return out
+
+    @staticmethod
+    def spp_layer(input_, levels=[[4,4], [2,2], [1,1]], pooling='MAX', concatenate=True, return_argmax=False, name='spp_layer'): # pooling in {'AVG', 'MAX', 'TV'}
+        # Input shape must be: b x h x w x c
+        # Returns tensor of shape :
+        #  * b x N  where N = prod(levels.*levels)*c if conca == False
+        #  * b x levels[0] x levels[1] x c if conca == True
+        if(return_argmax):
+            print('Impossible to return argmax. Not Implemented yet.')
+            raise
+        with tf.variable_scope(name):
+            shape = tf.cast(tf.shape(input_), tf.float32)
+            if(not concatenate):
+                assert len(levels) == 1
+                pool_outputs = tf.zeros([tf.shape(input_)[0], levels[0][0], levels[0][1], tf.shape(input_)[3]], dtype=tf.float32)
+            else:
+                pool_outputs = []
             for l in levels:
                 # Compute the pooling manually by slicing the input tensor
                 pool_size = tf.cast([tf.ceil(tf.div(shape[-3],l)), tf.ceil(tf.div(shape[-2], l))], tf.int32)
                 strides= tf.cast([tf.floordiv(shape[-3], l), tf.floordiv(shape[-2], l)], tf.int32)
-                for i in range(l):
-                    for j in range(l):
+                for i in range(l[0]):
+                    for j in range(l[1]):
                         # bin (i,j)
-                        if(len(input_.get_shape()) == 4):
-                            tensor_slice = input_[:, i*strides[0]:i*strides[0]+pool_size[0], j*strides[1]:j*strides[1]+pool_size[1],:]
-                            reduced_axis = [1, 2]
-                        else:
-                            tensor_slice = input_[:, :, i*strides[0]:i*strides[0]+pool_size[0], j*strides[1]:j*strides[1]+pool_size[1],:]
-                            reduced_axis = [2, 3]
+                        tensor_slice = input_[:, i*strides[0]:i*strides[0]+pool_size[0], j*strides[1]:j*strides[1]+pool_size[1],:]
                         if(pooling == 'AVG'):
-                            pool_outputs.append(tf.reduce_mean(tensor_slice, axis=reduced_axis))
+                            reduced_tensor = tf.reduce_mean(tensor_slice, axis=[1,2])
                         elif(pooling == 'MAX'):
-                            pool_outputs.append(tf.reduce_max(tensor_slice, axis=reduced_axis))
+                            reduced_tensor = tf.reduce_max(tensor_slice, axis=[1,2])
                         elif(pooling == 'TV'):
-                            if(len(input_.get_shape()) == 4):
-                                pool_outputs.append(tf.reduce_sum(tf.abs(tensor_slice[:, 1:, :, :] - tensor_slice[:, :-1, :, :]), axis=[1,2])+
-                                                    tf.reduce_sum(tf.abs(tensor_slice[:, :, 1:, :] - tensor_slice[:, :, :-1, :]), axis=[1,2]))
-                            else:
-                                pool_outputs.append(tf.reduce_sum(tf.abs(tensor_slice[:, :, 1:, :, :] - tensor_slice[:, :, :-1, :, :]), axis=[2,3])+
-                                                    tf.reduce_sum(tf.abs(tensor_slice[:, :, :, 1:, :] - tensor_slice[:, :, :, :-1, :]), axis=[2,3]))
-            
-            spp = tf.concat(pool_outputs, 1)
+                            reduced_tensor = tf.reduce_sum(tf.abs(tensor_slice[:, 1:, :, :] - tensor_slice[:, :-1, :, :]), axis=[1,2]) +\
+                                             tf.reduce_sum(tf.abs(tensor_slice[:, :, 1:, :] - tensor_slice[:, :, :-1, :]), axis=[1,2])
+                        if(concatenate):
+                            pool_outputs.append(reduced_tensor)
+                        else:
+                            pool_outputs[:, i, j, :] = tf.add(pool_outputs[:, i, j, :], reduced_tensor)
+            if(contatenate):
+                spp = tf.concat(pool_outputs, 1)
+            else:
+                spp = pool_outputs
             return spp
     
     def update_confusion_matrix(self, labels, pred, name, nb_classes = None):

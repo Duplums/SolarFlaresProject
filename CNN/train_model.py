@@ -230,7 +230,7 @@ def train_model(data):
     
     with sess.as_default():
         
-        #restore_checkpoint(sess, restore, checkpoint_dir)
+        restore_checkpoint(sess, restore, checkpoint_dir)
         train_writer = tf.summary.FileWriter(tensorboard_dir, sess.graph)      
         learning_rate = config['learning_rate']
         global_counter = sess.run(G.get_tensor_by_name('global_iterator:0')) 
