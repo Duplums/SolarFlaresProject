@@ -37,29 +37,25 @@ class Model:
     
     # Uses Keras layers (for time ditribution)
     def build_lrcn(self, data):
-         # data must have size 1 x nb_frames x height x width x nb_channels [just 1 video at a time since the size can change]
+         # data must have size n_vids x nb_frames x height x width x nb_channels 
          assert type(data) is tf.Tensor and len(data.shape) == 5
          with tf.variable_scope(self.name):
             (_, nb_frames, height, width, nb_channels) = data.get_shape().as_list()
-            init = tf.keras.initializers.RandomNormal(mean=0.0, stddev=1e-5)
+            init = tf.keras.initializers.RandomNormal(mean=0.0, stddev=1e-3)
             self.input_layer = tf.cast(data, dtype=tf.float32)
             ### conv3-LSTM - 512 
             self.convLSTM = ConvLSTM2D(filters=512, kernel_size=3, kernel_initializer=init, 
                                        padding='same', activation='tanh', return_sequences=False, 
                                        return_state=False, dropout=self.dropout_prob)(self.input_layer)
-            ### spp - 8 [output = 8*8*512 = 32768]
-            self.spp = self.spp_layer(self.convLSTM, [[4,4], [2,2], [1,1]], 'spp', pooling='TV')
-            self.fc1 = Dense(512, activation='relu', kernel_initializer=init)(self.spp)
+            self.fc1 = Dense(256, activation='relu', kernel_initializer=init)(self.convLSTM)
             if(self.training_mode): self.fc1 = Dropout(self.dropout_prob)(self.fc1)
-            self.fc2 = Dense(256, activation='relu', kernel_initializer=init)(self.fc1)
+            self.fc2 = Dense(64, activation='relu', kernel_initializer=init)(self.fc1)
             if(self.training_mode): self.fc2 = Dropout(self.dropout_prob)(self.fc2)
-            self.fc3 = Dense(64, activation='relu', kernel_initializer=init)(self.fc2)
-            if(self.training_mode): self.fc3 = Dropout(self.dropout_prob)(self.fc3)
 
             if(self.pb_kind == 'classification'):
-               self.output = Dense(self.nb_classes, kernel_initializer=init)(self.fc3)
+               self.output = Dense(self.nb_classes, kernel_initializer=init)(self.fc2)
             elif(self.pb_kind == 'regression'):
-                self.output = tf.squeeze(Dense(1)(self.fc1), axis=1) # [[1.2], [2.3], ...] => [1.2, 2.3, ...]
+                self.output = tf.squeeze(Dense(1)(self.fc2), axis=1) # [[1.2], [2.3], ...] => [1.2, 2.3, ...]
             else:
                 print('Illegal kind of problem for LRCN model: {}'.format(self.pb_kind))
                 
