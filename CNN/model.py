@@ -57,13 +57,11 @@ class Model:
             if(self.training_mode): self.fc1 = Dropout(self.dropout_prob)(self.fc1)
             self.fc2 = Dense(128, activation='relu', kernel_initializer=init)(self.fc1)
             if(self.training_mode): self.fc2 = Dropout(self.dropout_prob)(self.fc2)
-            self.fc3 = Dense(64, activation='relu', kernel_initializer=init)(self.fc2)
-            if(self.training_mode): self.fc3 = Dropout(self.dropout_prob)(self.fc3)
 
             if(self.pb_kind == 'classification'):
-               self.output = Dense(self.nb_classes, kernel_initializer=init)(self.fc3)
+               self.output = Dense(self.nb_classes, kernel_initializer=init)(self.fc2)
             elif(self.pb_kind == 'regression'):
-                self.output = tf.squeeze(Dense(1)(self.fc1), axis=1) # [[1.2], [2.3], ...] => [1.2, 2.3, ...]
+                self.output = tf.squeeze(Dense(1)(self.fc2), axis=1) # [[1.2], [2.3], ...] => [1.2, 2.3, ...]
             else:
                 print('Illegal kind of problem for LRCN model: {}'.format(self.pb_kind))
                 
