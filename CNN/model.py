@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow.keras.layers import  Conv2D, MaxPooling2D, Dense, Dropout, BatchNormalization, ConvLSTM2D
+from tensorflow.keras.layers import  Conv2D, MaxPooling2D, Dense, Dropout, BatchNormalization, ConvLSTM2D, LSTM
 
 class Model:
     
@@ -37,21 +37,25 @@ class Model:
     
     # Uses Keras layers (for time ditribution)
     def build_lrcn(self, data):
-         # data must have size 1 x nb_frames x height x width x nb_channels [just 1 video at a time since the size can change]
-         assert type(data) is tf.Tensor and len(data.shape) == 5
+         # data must have size n_vids x nb_frames x n_features 
+         # * n_features = h*w*c+2 where (h,w,c) = (8,16,512) in the decoder output + 2 features = (size_h,size_w) of the init picture
+         # * nb_frames = 12
+         assert type(data) is tf.Tensor and len(data.shape) == 3 
          with tf.variable_scope(self.name):
-            (_, nb_frames, height, width, nb_channels) = data.get_shape().as_list()
+            (_, nb_frames, n_features) = data.get_shape().as_list()
             init = tf.keras.initializers.RandomNormal(mean=0.0, stddev=1e-5)
             self.input_layer = tf.cast(data, dtype=tf.float32)
             ### conv3-LSTM - 512 
-            self.convLSTM = ConvLSTM2D(filters=512, kernel_size=3, kernel_initializer=init, 
-                                       padding='same', activation='tanh', return_sequences=False, 
-                                       return_state=False, dropout=self.dropout_prob)(self.input_layer)
-            ### spp - 8 [output = 8*8*512 = 32768]
-            self.spp = self.spp_layer(self.convLSTM, [[4,4], [2,2], [1,1]], 'spp', pooling='TV')
-            self.fc1 = Dense(512, activation='relu', kernel_initializer=init)(self.spp)
+            #self.convLSTM = ConvLSTM2D(filters=512, kernel_size=3, kernel_initializer=init, 
+            #                           padding='same', activation='tanh', return_sequences=False, 
+            #                           return_state=False, dropout=self.dropout_prob)(self.input_layer)
+            self.LSTM = LSTM(units=512, input_shape=(nb_frames, n_features), activation='tanh', kernel_initializer=init)(self.input_layer)
+            ### OPTION 1: SPP 
+            #self.spp = self.spp_layer(self.convLSTM, [[4,4], [2,2], [1,1]], 'spp', pooling='TV')
+            ### OPTION 2: NO SPP
+            self.fc1 = Dense(256, activation='relu', kernel_initializer=init)(self.LSTM)
             if(self.training_mode): self.fc1 = Dropout(self.dropout_prob)(self.fc1)
-            self.fc2 = Dense(256, activation='relu', kernel_initializer=init)(self.fc1)
+            self.fc2 = Dense(128, activation='relu', kernel_initializer=init)(self.fc1)
             if(self.training_mode): self.fc2 = Dropout(self.dropout_prob)(self.fc2)
             self.fc3 = Dense(64, activation='relu', kernel_initializer=init)(self.fc2)
             if(self.training_mode): self.fc3 = Dropout(self.dropout_prob)(self.fc3)
@@ -190,7 +194,12 @@ class Model:
                                             kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=self.lambda_reg),
                                             strides=(1,1), padding='same', activation='relu', name='conv5_1')
             if(self.batch_norm): self.conv5_1 = tf.layers.batch_normalization(self.conv5_1, training=self.training_mode, name='bn5_1')
-            self.pool5 = self.spp_layer(self.conv5_1, levels=[[4, 8]], pooling='MAX', concatenate=False)
+            
+            # OPTION 1 (with resizing/spp)
+            self.pool5 = tf.image.resize_images(self.conv5_1, [8, 16], align_corners=True)
+            
+            # OPTION 2 (without resizing)
+            #self.pool5 = tf.layers.max_pooling2d(self.conv5_1, pool_size=(2,2), strides=(2,2), padding='same')
 
             # Symmetric decoder
             ### unconv3 - 512

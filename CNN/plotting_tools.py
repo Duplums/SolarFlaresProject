@@ -1,5 +1,7 @@
 ''' This claim provides some functions for DNN visualization and image visualization in general.'''
 
+import matplotlib
+matplotlib.use('Agg') # no display 'ON'
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
@@ -9,6 +11,7 @@ class Plotting_Tools:
     # We assume that a kernel has the following dim: h x w x depth x nb_filters 
     # In this plot, each row corresponds to a flatten filter of the kernel. 
     # The depth is reduced to 'max_depth'.
+
     @staticmethod
     def plot_kernel(kernel, max_depth = 20):
         assert type(kernel) == np.array and len(kernel.shape) == 4
@@ -31,7 +34,8 @@ class Plotting_Tools:
     # We assume that the pictures are stored in an array of shape h x w x c
     # (channel last) or c x h x w (channel first).
     @staticmethod
-    def plot_pictures(pics, nrows, ncols, channel_last = True, labels = None, figsize=None):
+    def plot_pictures(pics, nrows, ncols, channel_last = True, labels = None, figsize=None,
+                     save_fig=False, name_fig="pic.png"):
         assert type(pics) == np.ndarray and len(pics.shape) == 3
         if(channel_last):
             assert labels is None or len(labels) >= min(nrows*ncols, pics.shape[-1])
@@ -54,8 +58,12 @@ class Plotting_Tools:
             if(labels is not None):
                 plt.title(labels[k])
             plt.axis('off')
+        
+        if(save_fig):
+            plt.savefig(name_fig)
+        
         plt.show()
-
+        plt.close()
 
 
 ### Examples ###

@@ -157,7 +157,7 @@ def create_TF_graph(data, training, test_on_training=False):
                        _model.loss,
                        _model.MSE_up,
                        _model.confusion_matrix_up,
-                       _model.convLSTM,
+                       _model.LSTM,
                        _model.output, 
                        input_data[1]]
             else:
@@ -178,7 +178,7 @@ def create_TF_graph(data, training, test_on_training=False):
         elif(pb_kind == 'regression'):
             metrics_ops = [_model.MSE, _model.confusion_matrix]
         else:
-            metrics_ops = []
+            metrics_ops = [_model.MSE]
         
         if(training):
             init_ops = [tf.global_variables_initializer(),# All weights
@@ -354,11 +354,12 @@ def test_model(data, test_on_training = False, save_features = False):
             # Starts the test on all files
             batch_it = 0
             end_of_batch = False
+            pic_counter = 0
             while(not end_of_batch):
                 # Generates the next batch of data and loads it in memory
                 end_of_batch = data_generator.gen_batch_dataset(save_extracted_data=False, 
                                                                 retrieve_data=False,
-                                                                take_random_files=True,
+                                                                take_random_files=False,
                                                                 get_metadata=True,
                                                                 verbose=False)
                 # Initializes the iterator on the current batch 
@@ -386,14 +387,16 @@ def test_model(data, test_on_training = False, save_features = False):
                         if(step % 20 == 0):
                             print('Loss: {}'.format(results[0]))
                         
-                        if(step % 2 == 0 and pb_kind == 'encoder' and  display_plots):
+                        if(step % 20 == 0 and pb_kind == 'encoder' and  display_plots):
                             # Prints the reconstruction 
                             true_pic = results[1][0]
                             rec_pic = results[2][0]
                             pics = np.concatenate((true_pic, rec_pic), axis=2)
                             labels = ['True {}'.format(seg) for seg in config['segs']]
                             labels += ['Reconstructed {}'.format(seg) for seg in config['segs']]
-                            pt.Plotting_Tools.plot_pictures(pics, nrows=2, ncols=len(config['segs']), labels=labels, figsize=(3*len(config['segs']), 4))
+                            pt.Plotting_Tools.plot_pictures(pics, nrows=2, ncols=len(config['segs']), labels=labels, figsize=(3*len(config['segs']), 4),
+                                                            save_fig=True, name_fig="ex_{}.png".format(pic_counter))
+                            pic_counter += 1
                             # Prints the picture after the 1st conv (64 filters)
                             # and the picture after the last conv (512 filters)
                             first_conv_pic = results[3][0]

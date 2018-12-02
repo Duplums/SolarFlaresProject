@@ -1,17 +1,17 @@
 
             # CONFIG FOR SOLAR FLARES DATA
 config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587] 
-                  'batch_memsize': 2048 , # xMB / global batch
-                  'num_threads' : 8,
+                  'batch_memsize': 4096 , # xMB / global batch
+                  'num_threads' : 24,
                   'model': 'VGG_16_encoder_decoder',
                   'pb_kind': 'encoder',
                   'flare_level' : {'A': 1e0, 'B': 1e1, 'C': 1e2, 'M': 1e3, 'X': 1e4},
-                  'checkpoint': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Checkpoints/SF',
-                  'tensorboard': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Tensorboard/logs_SF',
-                  'input_features_dir' : '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
-                  'output_features_dir': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
+                  'checkpoint': '/home/nasa/checkpoints/autoencoder',
+                  'tensorboard': '/home/nasa/tensorboard/autoencoder',
+                  'input_features_dir' : '/home/nasa/features_extracted/input_features_dir',
+                  'output_features_dir': '/home/nasa/features_extracted/output_features_dir',
                   'regression_threshold': 6.9077552789, # == np.log(1e3) (== M-flare)
-                  'learning_rate': 0.01,
+                  'learning_rate': 0.005,
                   'loss_weights': [1, 1.5],
                   'tolerance': 0.001,
                   'batch_norm': True,
@@ -29,22 +29,22 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                   'subsampling' : 1,
                   'resize_method': 'NONE',
                   'rescaling_factor': 1,
-                  'display' : False,
+                  'display' : True,
                   'time_step': 60, # time step used in each video
-                  'training_paths': '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/train',
-                  'testing_paths': '/n/midland/w/dufumier/Documents/SolarFlaresProject/DataQuery/SF-HDF5/test'        
+                  'training_paths': '/home/data/train',
+                  'testing_paths': '/home/data/test'        
                   },
             # CONFIG FOR SOLAR FLARE FEATURES EXTRACTED FROM THE ENCODER
-            'SF_encoded': {'data_dims': [None, None, None, 512],
+            'SF_encoded': {'data_dims': [12, 512*8*16+2],
                   'batch_memsize': 5000 , # xMB / global batch
                   'num_threads' : 48,
                   'model': 'LRCN',
                   'pb_kind': 'regression',
                   'flare_level' : {'A': 1e0, 'B': 1e1, 'C': 1e2, 'M': 1e3, 'X': 1e4},
-                  'checkpoint': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Checkpoints/SF',
-                  'tensorboard': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Tensorboard/logs_SF',
-                  'input_features_dir' : '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
-                  'output_features_dir': '/n/midland/w/dufumier/Documents/SolarFlaresProject/CNN/Dataset/SF',
+                  'checkpoint': '/home/nasa/checkpoints/lrcn/regression',
+                  'tensorboard': '/home/nasa/tensorboard/lrcn/regression',
+                  'input_features_dir' : '/home/nasa/features_extracted/input_features_dir',
+                  'output_features_dir': '/home/nasa/features_extracted/output_features_dir',
                   'regression_threshold': 6.9077552789, # == np.log(1e3) (== M-flare)
                   'learning_rate': 0.01,
                   'loss_weights': [1, 1.5],
@@ -59,14 +59,12 @@ config = { 'SF': {'data_dims': [None, None, 3], # MAX DIM on 7/20 : [2860, 2587]
                   'ar_attrs' : [],
                   'segs': ['filter_{}'.format(k) for k in range(512)],
                   'subsampling' : 1,
-                  'resize_method': 'ZERO_PADDING',
+                  'resize_method': 'NONE',
                   'rescaling_factor': 1,
                   'display' : False,
                   'time_step': 60, # time step used in each video (in minutes)
-                  'training_paths': ['/home/data_encoded/train/B-class-flares',
-                                     '/home/data_encoded/train/M-X-class-flares'],
-                  'testing_paths': ['/home/data_encoded/test/B-class-flares',
-                                    '/home/data_encoded/test/M-X-class-flares']                
+                  'training_paths': '/home/nasa/data_encoded/train',
+                  'testing_paths': '/home/nasa/data_encoded/test',
                   },
            # CONFIG FOR MNIST DATA
           'MNIST': {'data_dims': [64, 64, 1],
